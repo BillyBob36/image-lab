@@ -257,7 +257,7 @@ async def api_edit(
 # ---------------------------------------------------------------- Auth
 _PUBLIC_PREFIXES = (
     "/auth/", "/login.html", "/style.css", "/app.js",
-    "/favicon", "/openapi.json", "/docs", "/redoc",
+    "/logo.png", "/favicon", "/openapi.json", "/docs", "/redoc",
 )
 _PUBLIC_EXACT = {"/api/me", "/api/config"}
 

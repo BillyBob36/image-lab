@@ -32,8 +32,7 @@ header {
   backdrop-filter: blur(10px); z-index: 20;
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
-.brand .dot { width: 20px; height: 20px; border-radius: 6px;
-  background: linear-gradient(135deg, var(--m2), var(--m15)); box-shadow: 0 0 18px #6d8cff66; }
+.brand .brand-logo { width: 26px; height: 26px; object-fit: contain; display: block; }
 .spacer { flex: 1; }
 .user-chip { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13px; }
 .user-chip img { width: 26px; height: 26px; border-radius: 50%; }
