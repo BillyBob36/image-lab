@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "imagelab", "runtimeExecutable": "python", "runtimeArgs": ["-m","uvicorn","app:app","--host","127.0.0.1","--port","8077"], "port": 8077 }
+  ]
+}

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Image Lab — GPT-image 2.0 & 1.5</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d8cff'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23b06dff'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="dot"></span> Image Lab</div>
+    <div class="model-toggle" id="modelToggle"></div>
+    <div class="spacer"></div>
+    <div class="user-chip hidden" id="userChip">
+      <img id="userPic" alt="" />
+      <span id="userEmail"></span>
+      <button class="btn-ghost" id="logoutBtn">Déconnexion</button>
+    </div>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="generate">Génération</div>
+    <div class="tab" data-tab="edit">Édition · Inpainting</div>
+  </div>
+
+  <main>
+    <!-- OPTIONS PANEL -->
+    <aside class="panel" id="optionsPanel">
+      <h3>Options <span id="optModelName" style="color:var(--text)"></span></h3>
+
+      <div class="field" id="fSize">
+        <label>Taille <span class="hint" id="sizeHint"></span></label>
+        <div class="seg sizes" id="sizePresets"></div>
+        <div class="custom-size" id="customSize">
+          <input type="number" id="sizeW" step="16" min="512" max="3840" placeholder="larg." />
+          <span>×</span>
+          <input type="number" id="sizeH" step="16" min="512" max="3840" placeholder="haut." />
+        </div>
+        <div class="hint" id="sizeConstraint" style="margin-top:6px"></div>
+      </div>
+
+      <div class="field" id="fQuality">
+        <label>Qualité</label>
+        <div class="seg" id="qualitySeg"></div>
+      </div>
+
+      <div class="field" id="fTransparent">
+        <label>Fond transparent <span class="hint" id="transHint"></span></label>
+        <label class="switch">
+          <input type="checkbox" id="transparent" /><span class="track"></span>
+          <span id="transLabel" class="hint"></span>
+        </label>
+      </div>
+
+      <div class="field" id="fFormat">
+        <label>Format de sortie</label>
+        <div class="seg" id="formatSeg"></div>
+      </div>
+
+      <div class="field" id="fCompression">
+        <label>Compression JPEG <span class="hint">0 = max qualité</span></label>
+        <div class="range-row">
+          <input type="range" id="compression" min="0" max="100" value="80" />
+          <span class="val" id="compressionVal">80</span>
+        </div>
+      </div>
+
+      <div class="field" id="fN">
+        <label>Nombre d'images</label>
+        <div class="range-row">
+          <input type="range" id="nImages" min="1" max="10" value="1" />
+          <span class="val" id="nVal">1</span>
+        </div>
+      </div>
+
+      <div class="field" id="fFidelity">
+        <label>Fidélité d'entrée <span class="hint">préserve visages/détails</span></label>
+        <div class="seg" id="fidelitySeg"></div>
+      </div>
+
+      <div class="field" id="fModeration">
+        <label>Modération</label>
+        <div class="seg" id="moderationSeg"></div>
+      </div>
+    </aside>
+
+    <!-- WORK AREA -->
+    <section class="work">
+      <!-- edit-only source + mask -->
+      <div class="panel hidden" id="editSources">
+        <h3>Images source <span class="hint" style="color:var(--muted)">glisser-déposer · multi-images OK</span></h3>
+        <div class="drop" id="drop">Cliquez ou déposez une ou plusieurs images ici</div>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" multiple class="hidden" />
+        <div class="thumbs" id="thumbs"></div>
+
+        <div class="mask-editor hidden" id="maskEditor">
+          <label style="font-size:13px;font-weight:600;display:block;margin:14px 0 8px">
+            Masque d'inpainting — peignez la zone à modifier (le reste est préservé)
+          </label>
+          <div class="mask-stage" id="maskStage">
+            <canvas id="maskBase"></canvas>
+            <canvas id="maskPaint" class="paint"></canvas>
+          </div>
+          <div class="mask-tools">
+            <div class="brush">Pinceau <input type="range" id="brushSize" min="4" max="120" value="40" style="width:120px" /></div>
+            <button class="btn-ghost" id="maskClear">Effacer</button>
+            <label class="switch" style="font-size:12px">
+              <input type="checkbox" id="maskEnabled" checked /><span class="track"></span> Utiliser le masque
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel prompt-box">
+        <textarea id="prompt" placeholder="Décrivez l'image à générer… (jusqu'à 32 000 caractères)"></textarea>
+        <div class="prompt-meta">
+          <span id="promptCount">0</span>
+          <span id="modelMeta"></span>
+        </div>
+      </div>
+
+      <div class="go">
+        <button class="btn-primary" id="runBtn">Générer</button>
+        <span class="status" id="status"></span>
+      </div>
+
+      <div id="errBox"></div>
+      <div id="revisedBox"></div>
+
+      <div class="results" id="results"></div>
+      <div class="placeholder" id="emptyState">Les images générées apparaîtront ici.</div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

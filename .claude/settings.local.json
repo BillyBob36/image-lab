@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/lamid/.claude/skills/image-gen-azure/scripts/**)",
+      "Read(//c/Users/lamid/.claude/skills/image-gen-azure/**)"
+    ]
+  }
+}
