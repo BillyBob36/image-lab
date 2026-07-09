@@ -35,7 +35,7 @@ const I18N = {
     empty_state: "Les images générées apparaîtront ici.", run_generate: "Générer", run_edit: "Éditer",
     ph_prompt_generate: "Décrivez l'image à générer… (jusqu'à 32 000 caractères)",
     ph_prompt_edit: "Décrivez la modification à appliquer…",
-    status_generating: "Génération en cours… (10–30 s)", err_prompt_required: "Le prompt est requis.",
+    status_generating: "Génération en cours… (10–30 s)", busy_short: "Génération…", err_prompt_required: "Le prompt est requis.",
     err_need_source: "Ajoutez au moins une image source.", err_unknown: "Erreur inconnue.", err_generic: "Erreur",
     revised_label: "Prompt révisé :", dl: "⬇ Télécharger", edit_btn: "✎ Éditer",
     trans_native: "alpha natif (PNG)", trans_cutout: "détourage approx. (PNG)", hint_native: "natif",
@@ -63,7 +63,7 @@ const I18N = {
     empty_state: "Generated images will appear here.", run_generate: "Generate", run_edit: "Edit",
     ph_prompt_generate: "Describe the image to generate… (up to 32,000 characters)",
     ph_prompt_edit: "Describe the change to apply…",
-    status_generating: "Generating… (10–30 s)", err_prompt_required: "A prompt is required.",
+    status_generating: "Generating… (10–30 s)", busy_short: "Generating…", err_prompt_required: "A prompt is required.",
     err_need_source: "Add at least one source image.", err_unknown: "Unknown error.", err_generic: "Error",
     revised_label: "Revised prompt:", dl: "⬇ Download", edit_btn: "✎ Edit",
     trans_native: "native alpha (PNG)", trans_cutout: "approx. cutout (PNG)", hint_native: "native",
@@ -104,6 +104,19 @@ function setLang(lang) {
 }
 function bindLang() {
   document.querySelectorAll("#langToggle button").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
+}
+
+// Mobile: bottom-sheet options + sticky action bar. No-ops on desktop (elements hidden).
+function openSheet(open) {
+  $("optionsPanel").classList.toggle("open", open);
+  $("sheetBackdrop").classList.toggle("show", open);
+  document.body.style.overflow = open ? "hidden" : "";
+}
+function bindMobile() {
+  $("optionsBtn").onclick = () => openSheet(true);
+  $("sheetClose").onclick = () => openSheet(false);
+  $("sheetBackdrop").onclick = () => openSheet(false);
+  $("runBtnMobile").onclick = () => { openSheet(false); run(); };
 }
 
 // Aspect ratios. `preset` = a native size the fixed-size models (1.5) support;
@@ -189,6 +202,7 @@ async function boot() {
   bindStaticInputs();
   bindEdit();
   bindLang();
+  bindMobile();
   selectModel(S.model);
   setLang(LANG);  // apply translations to static + dynamic UI
 }
@@ -280,7 +294,13 @@ function applyCaps() {
   buildSeg("moderationSeg", caps.moderation, S.moderation, (v) => { S.moderation = v; },
     { auto: "auto", low: "low" });
 
-  $("runBtn").textContent = S.tab === "edit" ? t("run_edit") : t("run_generate");
+  setRunLabels();
+}
+
+function runLabel() { return S.tab === "edit" ? t("run_edit") : t("run_generate"); }
+function setRunLabels() {
+  const l = runLabel();
+  ["runBtn", "runBtnMobile"].forEach((id) => { const b = $(id); if (b && !b.disabled) b.textContent = l; });
 }
 
 function buildSeg(id, values, current, onPick, labels) {
@@ -605,7 +625,9 @@ async function exportMask() {
 
 // ------------------------------------------------------------------ ui helpers
 function setBusy(b) {
-  $("runBtn").disabled = b;
+  const desk = $("runBtn"), mob = $("runBtnMobile");
+  if (desk) desk.disabled = b;
+  if (mob) { mob.disabled = b; mob.textContent = b ? t("busy_short") : runLabel(); }
   $("status").textContent = b ? t("status_generating") : "";
 }
 function showErr(m) { $("errBox").innerHTML = m ? `<div class="err">${m}</div>` : ""; }

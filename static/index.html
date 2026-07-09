@@ -31,6 +31,8 @@
   <main>
     <!-- OPTIONS PANEL -->
     <aside class="panel" id="optionsPanel">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <button class="sheet-close" id="sheetClose" aria-label="Fermer">✕</button>
       <h3><span data-i18n="options">Options</span> <span id="optModelName" style="color:var(--text)"></span></h3>
 
       <div class="field" id="fRatio">
@@ -148,6 +150,13 @@
       <div class="placeholder" id="emptyState" data-i18n="empty_state">Les images générées apparaîtront ici.</div>
     </section>
   </main>
+
+  <!-- mobile-only: backdrop + sticky action bar -->
+  <div class="sheet-backdrop" id="sheetBackdrop"></div>
+  <div class="mobile-bar" id="mobileBar">
+    <button class="mbar-options" id="optionsBtn">⚙ <span data-i18n="options">Options</span></button>
+    <button class="mbar-run btn-primary" id="runBtnMobile">Générer</button>
+  </div>
 
   <script src="/app.js"></script>
 </body>
