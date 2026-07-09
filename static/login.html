@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Image Lab — Connexion</title>
+  <title>Image Lab</title>
   <link rel="stylesheet" href="/style.css" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d8cff'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23b06dff'/%3E%3C/svg%3E" />
   <style>
     .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
     .login-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
-      padding: 40px; max-width: 420px; width: 100%; text-align: center; }
+      padding: 40px; max-width: 420px; width: 100%; text-align: center; position: relative; }
     .login-card .dot { width: 46px; height: 46px; border-radius: 12px; margin: 0 auto 18px;
       background: linear-gradient(135deg, var(--m2), var(--m15)); box-shadow: 0 0 30px #6d8cff55; }
     .login-card h1 { margin: 0 0 6px; font-size: 22px; }
@@ -21,34 +21,65 @@
     .login-err { background: #2a1416; border: 1px solid var(--danger); color: #ffd3d3;
       padding: 11px 14px; border-radius: 10px; margin-bottom: 20px; font-size: 13px; }
     .login-foot { margin-top: 22px; font-size: 11px; color: var(--muted); }
+    .login-lang { position: absolute; top: 14px; right: 14px; display: flex; border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden; }
+    .login-lang button { background: var(--panel-2); color: var(--muted); border: none; padding: 5px 10px;
+      font-size: 12px; font-weight: 700; cursor: pointer; }
+    .login-lang button.active { background: var(--accent); color: #fff; }
   </style>
 </head>
 <body>
   <div class="login-wrap">
     <div class="login-card">
+      <div class="login-lang" id="lang"><button data-lang="fr">FR</button><button data-lang="en">EN</button></div>
       <div class="dot"></div>
       <h1>Image Lab</h1>
       <p>GPT-image 2.0 &amp; 1.5 · Azure OpenAI</p>
       <div id="err"></div>
       <a class="btn-google" href="/auth/google/login">
         <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-        Se connecter avec Google
+        <span id="btnText">Se connecter avec Google</span>
       </a>
-      <div class="login-foot">Accès restreint. Seuls les comptes autorisés peuvent entrer.</div>
+      <div class="login-foot" id="foot">Accès restreint. Seuls les comptes autorisés peuvent entrer.</div>
     </div>
   </div>
   <script>
-    const p = new URLSearchParams(location.search);
-    const e = p.get("error");
-    if (e) {
-      const msgs = {
-        unauthorized: "Ce compte n'est pas autorisé" + (p.get("email") ? " (" + p.get("email") + ")" : "") + ". Essayez un autre compte.",
+    const T = {
+      fr: {
+        sign_in: "Se connecter avec Google",
+        foot: "Accès restreint. Seuls les comptes autorisés peuvent entrer.",
+        unauthorized: (e) => "Ce compte n'est pas autorisé" + (e ? " (" + e + ")" : "") + ". Essayez un autre compte.",
         invalid_state: "Session expirée, réessayez.",
         token_exchange: "Échec de l'échange OAuth, réessayez.",
         unverified: "Email Google non vérifié.",
-      };
-      document.getElementById("err").innerHTML = '<div class="login-err">' + (msgs[e] || e) + "</div>";
+      },
+      en: {
+        sign_in: "Sign in with Google",
+        foot: "Restricted access. Only authorized accounts may enter.",
+        unauthorized: (e) => "This account is not authorized" + (e ? " (" + e + ")" : "") + ". Try another account.",
+        invalid_state: "Session expired, please retry.",
+        token_exchange: "OAuth exchange failed, please retry.",
+        unverified: "Google email not verified.",
+      },
+    };
+    let lang = localStorage.getItem("lang") || ((navigator.language || "fr").toLowerCase().startsWith("en") ? "en" : "fr");
+    const p = new URLSearchParams(location.search);
+    function render() {
+      document.documentElement.lang = lang;
+      document.querySelectorAll("#lang button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
+      document.getElementById("btnText").textContent = T[lang].sign_in;
+      document.getElementById("foot").textContent = T[lang].foot;
+      const e = p.get("error");
+      if (e) {
+        const v = T[lang][e];
+        const msg = typeof v === "function" ? v(p.get("email")) : (v || e);
+        document.getElementById("err").innerHTML = '<div class="login-err">' + msg + "</div>";
+      }
     }
+    document.querySelectorAll("#lang button").forEach((b) => {
+      b.onclick = () => { lang = b.dataset.lang; localStorage.setItem("lang", lang); render(); };
+    });
+    render();
   </script>
 </body>
 </html>

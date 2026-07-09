@@ -40,6 +40,10 @@ header {
 .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted);
   padding: 6px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; }
 .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+.lang-toggle { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.lang-toggle button { background: var(--panel); color: var(--muted); border: none; padding: 6px 11px;
+  font-size: 12px; font-weight: 700; cursor: pointer; }
+.lang-toggle button.active { background: var(--accent); color: #fff; }
 
 /* ---------------- model toggle ---------------- */
 .model-toggle { display: flex; gap: 8px; }

@@ -19,17 +19,101 @@ const S = {
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 
+// ------------------------------------------------------------------ i18n
+const I18N = {
+  fr: {
+    tab_generate: "Génération", tab_edit: "Édition · Inpainting", options: "Options",
+    f_dimensions: "Dimensions", match_input: "Garder la taille de l'image source (au plus proche)",
+    ph_width: "larg.", ph_height: "haut.", f_quality: "Qualité", f_transparent: "Fond transparent",
+    f_format: "Format de sortie", f_compression: "Compression JPEG", hint_compression: "0 = max qualité",
+    f_n: "Nombre d'images", f_fidelity: "Fidélité d'entrée", hint_fidelity: "préserve visages/détails",
+    f_moderation: "Modération", edit_sources: "Images source", hint_edit_sources: "glisser-déposer · multi-images OK",
+    drop_zone: "Cliquez ou déposez une ou plusieurs images ici",
+    mask_label: "Masque d'inpainting — peignez la zone à modifier (le reste est préservé)",
+    brush: "Pinceau", clear: "Effacer", use_mask: "Utiliser le masque", logout: "Déconnexion",
+    empty_state: "Les images générées apparaîtront ici.", run_generate: "Générer", run_edit: "Éditer",
+    ph_prompt_generate: "Décrivez l'image à générer… (jusqu'à 32 000 caractères)",
+    ph_prompt_edit: "Décrivez la modification à appliquer…",
+    status_generating: "Génération en cours… (10–30 s)", err_prompt_required: "Le prompt est requis.",
+    err_need_source: "Ajoutez au moins une image source.", err_unknown: "Erreur inconnue.", err_generic: "Erreur",
+    revised_label: "Prompt révisé :", dl: "⬇ Télécharger", edit_btn: "✎ Éditer",
+    trans_native: "alpha natif (PNG)", trans_cutout: "détourage approx. (PNG)", hint_native: "natif",
+    hint_posttraite: "post-traité", hint_edit_15only: "édition : 1.5 seult", hint_unavail: "indispo",
+    lock_15_fixed: "1.5 : ratios fixes", tip_20_only: "Disponible seulement sur GPT-image 2.0",
+    size_constraint: "Côtés ×{edge} · côté long ≤ {max}px · ratio ≤ {ratio}:1",
+    suffix_source: " · d'après la source", suffix_custom: " · perso", perso: "Perso.", perso_sub: "W×H",
+    rtag_square: "carré", rtag_landscape: "paysage", rtag_portrait: "portrait", rtag_photo: "photo",
+    rtag_photo_v: "photo↕", rtag_wide: "large", rtag_story: "story", rtag_cine: "ciné",
+    tagline_2: "Haute résolution & 4K, édition améliorée, ratios libres",
+    tagline_15: "Réalisme, respect du prompt, transparence native (alpha)",
+    avail_GA: "GA", avail_Preview: "Aperçu",
+  },
+  en: {
+    tab_generate: "Generate", tab_edit: "Edit · Inpainting", options: "Options",
+    f_dimensions: "Dimensions", match_input: "Match the source image size (closest valid)",
+    ph_width: "width", ph_height: "height", f_quality: "Quality", f_transparent: "Transparent background",
+    f_format: "Output format", f_compression: "JPEG compression", hint_compression: "0 = max quality",
+    f_n: "Number of images", f_fidelity: "Input fidelity", hint_fidelity: "preserves faces/details",
+    f_moderation: "Moderation", edit_sources: "Source images", hint_edit_sources: "drag & drop · multi-image OK",
+    drop_zone: "Click or drop one or more images here",
+    mask_label: "Inpainting mask — paint the area to change (the rest is preserved)",
+    brush: "Brush", clear: "Clear", use_mask: "Use mask", logout: "Sign out",
+    empty_state: "Generated images will appear here.", run_generate: "Generate", run_edit: "Edit",
+    ph_prompt_generate: "Describe the image to generate… (up to 32,000 characters)",
+    ph_prompt_edit: "Describe the change to apply…",
+    status_generating: "Generating… (10–30 s)", err_prompt_required: "A prompt is required.",
+    err_need_source: "Add at least one source image.", err_unknown: "Unknown error.", err_generic: "Error",
+    revised_label: "Revised prompt:", dl: "⬇ Download", edit_btn: "✎ Edit",
+    trans_native: "native alpha (PNG)", trans_cutout: "approx. cutout (PNG)", hint_native: "native",
+    hint_posttraite: "post-processed", hint_edit_15only: "editing: 1.5 only", hint_unavail: "unavailable",
+    lock_15_fixed: "1.5: fixed ratios", tip_20_only: "Available only on GPT-image 2.0",
+    size_constraint: "Edges ×{edge} · long side ≤ {max}px · ratio ≤ {ratio}:1",
+    suffix_source: " · from source", suffix_custom: " · custom", perso: "Custom", perso_sub: "W×H",
+    rtag_square: "square", rtag_landscape: "landscape", rtag_portrait: "portrait", rtag_photo: "photo",
+    rtag_photo_v: "photo↕", rtag_wide: "wide", rtag_story: "story", rtag_cine: "cinema",
+    tagline_2: "High-res & 4K, improved editing, free aspect ratios",
+    tagline_15: "Realism, prompt-following, native transparency (alpha)",
+    avail_GA: "GA", avail_Preview: "Preview",
+  },
+};
+let LANG = localStorage.getItem("lang") || ((navigator.language || "fr").toLowerCase().startsWith("en") ? "en" : "fr");
+function t(key, params) {
+  let s = (I18N[LANG] && I18N[LANG][key]) ?? I18N.fr[key] ?? key;
+  if (params) for (const k in params) s = s.replace(`{${k}}`, params[k]);
+  return s;
+}
+function applyI18nStatic() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll("[data-i18n]").forEach((e) => { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-ph]").forEach((e) => { e.placeholder = t(e.dataset.i18nPh); });
+}
+function updatePromptPlaceholder() {
+  $("prompt").placeholder = S.tab === "edit" ? t("ph_prompt_edit") : t("ph_prompt_generate");
+}
+function setLang(lang) {
+  LANG = lang;
+  localStorage.setItem("lang", lang);
+  document.querySelectorAll("#langToggle button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
+  applyI18nStatic();
+  renderModelToggle();
+  updatePromptPlaceholder();
+  applyCaps();
+}
+function bindLang() {
+  document.querySelectorAll("#langToggle button").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
+}
+
 // Aspect ratios. `preset` = a native size the fixed-size models (1.5) support;
 // ratios without it are only reachable on free-size models (2.0).
 const RATIOS = [
-  { id: "1:1",  w: 1,  h: 1,  preset: "1024x1024", tag: "carré" },
-  { id: "3:2",  w: 3,  h: 2,  preset: "1536x1024", tag: "paysage" },
-  { id: "2:3",  w: 2,  h: 3,  preset: "1024x1536", tag: "portrait" },
-  { id: "4:3",  w: 4,  h: 3,  tag: "photo" },
-  { id: "3:4",  w: 3,  h: 4,  tag: "photo↕" },
-  { id: "16:9", w: 16, h: 9,  tag: "large" },
-  { id: "9:16", w: 9,  h: 16, tag: "story" },
-  { id: "21:9", w: 21, h: 9,  tag: "ciné" },
+  { id: "1:1",  w: 1,  h: 1,  preset: "1024x1024", tag: "rtag_square" },
+  { id: "3:2",  w: 3,  h: 2,  preset: "1536x1024", tag: "rtag_landscape" },
+  { id: "2:3",  w: 2,  h: 3,  preset: "1024x1536", tag: "rtag_portrait" },
+  { id: "4:3",  w: 4,  h: 3,  tag: "rtag_photo" },
+  { id: "3:4",  w: 3,  h: 4,  tag: "rtag_photo_v" },
+  { id: "16:9", w: 16, h: 9,  tag: "rtag_wide" },
+  { id: "9:16", w: 9,  h: 16, tag: "rtag_story" },
+  { id: "21:9", w: 21, h: 9,  tag: "rtag_cine" },
 ];
 
 const R16 = (x) => Math.round(x / 16) * 16;
@@ -83,7 +167,9 @@ async function boot() {
   bindTabs();
   bindStaticInputs();
   bindEdit();
+  bindLang();
   selectModel(S.model);
+  setLang(LANG);  // apply translations to static + dynamic UI
 }
 
 function renderUser(me) {
@@ -100,9 +186,10 @@ function renderModelToggle() {
   Object.values(S.models).forEach((m) => {
     const b = el("button", "model-btn");
     b.dataset.model = m.id;
+    const tagKey = m.id === "gpt-image-2" ? "tagline_2" : "tagline_15";
     b.innerHTML = `<span class="mt-name">${m.label}</span>
-      <span class="mt-tag">${m.tagline}</span>
-      <span class="mt-badge">${m.availability}</span>`;
+      <span class="mt-tag">${t(tagKey)}</span>
+      <span class="mt-badge">${t("avail_" + m.availability)}</span>`;
     b.onclick = () => selectModel(m.id);
     wrap.appendChild(b);
   });
@@ -140,15 +227,15 @@ function applyCaps() {
   const canTrans = caps.nativeTransparency || (S.tab === "generate" && caps.transparencyFallback);
   toggleField("fTransparent", canTrans);
   if (canTrans) {
-    $("transLabel").textContent = caps.nativeTransparency ? "alpha natif (PNG)" : "détourage approx. (PNG)";
+    $("transLabel").textContent = caps.nativeTransparency ? t("trans_native") : t("trans_cutout");
     $("transHint").innerHTML = caps.nativeTransparency
-      ? `<span style="color:var(--m15)">natif</span>`
-      : `<span style="color:var(--m2)">post-traité</span>`;
+      ? `<span style="color:var(--m15)">${t("hint_native")}</span>`
+      : `<span style="color:var(--m2)">${t("hint_posttraite")}</span>`;
   } else {
     $("transparent").checked = false;
     $("transHint").innerHTML = S.tab === "edit"
-      ? `<span class="lock">édition : 1.5 seult</span>`
-      : `<span class="lock">indispo</span>`;
+      ? `<span class="lock">${t("hint_edit_15only")}</span>`
+      : `<span class="lock">${t("hint_unavail")}</span>`;
   }
   const transparent = canTrans && $("transparent").checked;
 
@@ -172,7 +259,7 @@ function applyCaps() {
   buildSeg("moderationSeg", caps.moderation, S.moderation, (v) => { S.moderation = v; },
     { auto: "auto", low: "low" });
 
-  $("runBtn").textContent = S.tab === "edit" ? "Éditer" : "Générer";
+  $("runBtn").textContent = S.tab === "edit" ? t("run_edit") : t("run_generate");
 }
 
 function buildSeg(id, values, current, onPick, labels) {
@@ -194,14 +281,14 @@ function renderSizeControls(caps) {
 
   RATIOS.forEach((r) => {
     const on = ratioOK(r);
-    const b = el("button", on ? "" : "off", `${r.id}<small>${r.tag}</small>`);
-    if (!on) b.title = "Disponible seulement sur GPT-image 2.0";
+    const b = el("button", on ? "" : "off", `${r.id}<small>${t(r.tag)}</small>`);
+    if (!on) b.title = t("tip_20_only");
     if (S.sizeStrategy === "ratio" && S.ratio === r.id && on) b.classList.add("active");
     if (on) b.onclick = () => { S.sizeStrategy = "ratio"; S.ratio = r.id; applyCaps(); };
     seg.appendChild(b);
   });
   if (free) {
-    const c = el("button", "", "Perso.<small>W×H</small>");
+    const c = el("button", "", `${t("perso")}<small>${t("perso_sub")}</small>`);
     if (S.sizeStrategy === "custom") c.classList.add("active");
     c.onclick = () => { S.sizeStrategy = "custom"; syncCustomSize(); applyCaps(); };
     seg.appendChild(c);
@@ -220,15 +307,15 @@ function renderSizeControls(caps) {
 
   if (free) {
     const c = caps.freeSize;
-    $("sizeConstraint").textContent = `Côtés ×${c.edgeMultiple} · côté long ≤ ${c.maxLongEdge}px · ratio ≤ ${c.maxRatio}:1`;
+    $("sizeConstraint").textContent = t("size_constraint", { edge: c.edgeMultiple, max: c.maxLongEdge, ratio: c.maxRatio });
     $("sizeHint").innerHTML = "";
   } else {
     $("sizeConstraint").textContent = "";
-    $("sizeHint").innerHTML = `<span class="lock">1.5 : ratios fixes</span>`;
+    $("sizeHint").innerHTML = `<span class="lock">${t("lock_15_fixed")}</span>`;
   }
 
   const resolved = currentSize();
-  const suffix = matching ? " · d'après la source" : (S.sizeStrategy === "custom" ? " · perso" : "");
+  const suffix = matching ? t("suffix_source") : (S.sizeStrategy === "custom" ? t("suffix_custom") : "");
   $("sizeResolved").textContent = resolved ? `→ ${resolved}${suffix}` : "";
 }
 
@@ -259,15 +346,13 @@ function currentSize() {
 
 // ------------------------------------------------------------------ tabs
 function bindTabs() {
-  document.querySelectorAll(".tab").forEach((t) => {
-    t.onclick = () => {
+  document.querySelectorAll(".tab").forEach((tabEl) => {
+    tabEl.onclick = () => {
       document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-      t.classList.add("active");
-      S.tab = t.dataset.tab;
+      tabEl.classList.add("active");
+      S.tab = tabEl.dataset.tab;
       $("editSources").classList.toggle("hidden", S.tab !== "edit");
-      $("prompt").placeholder = S.tab === "edit"
-        ? "Décrivez la modification à appliquer…"
-        : "Décrivez l'image à générer… (jusqu'à 32 000 caractères)";
+      updatePromptPlaceholder();
       applyCaps();
     };
   });
@@ -290,8 +375,8 @@ function bindStaticInputs() {
 // ------------------------------------------------------------------ run
 async function run() {
   const prompt = $("prompt").value.trim();
-  if (!prompt) { showErr("Le prompt est requis."); return; }
-  if (S.tab === "edit" && S.sources.length === 0) { showErr("Ajoutez au moins une image source."); return; }
+  if (!prompt) { showErr(t("err_prompt_required")); return; }
+  if (S.tab === "edit" && S.sources.length === 0) { showErr(t("err_need_source")); return; }
 
   setBusy(true); showErr(""); showRevised("");
   try {
@@ -299,7 +384,7 @@ async function run() {
     renderResults(data);
     if (data.revised_prompt) showRevised(data.revised_prompt);
   } catch (e) {
-    showErr(e.message || "Erreur inconnue.");
+    showErr(e.message || t("err_unknown"));
   } finally {
     setBusy(false);
   }
@@ -322,7 +407,7 @@ async function runGenerate(prompt) {
   const r = await api("/api/generate", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Erreur ${r.status}`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `${t("err_generic")} ${r.status}`);
   return r.json();
 }
 
@@ -347,7 +432,7 @@ async function runEdit(prompt) {
     if (blob) fd.append("mask", blob, "mask.png");
   }
   const r = await api("/api/edit", { method: "POST", body: fd });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Erreur ${r.status}`);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `${t("err_generic")} ${r.status}`);
   return r.json();
 }
 
@@ -362,9 +447,9 @@ function renderResults(data) {
     const img = el("img"); img.src = src; img.alt = `résultat ${i + 1}`;
     wrap.appendChild(img);
     const actions = el("div", "actions");
-    const dl = el("button", "", "⬇ Télécharger");
+    const dl = el("button", "", t("dl"));
     dl.onclick = () => downloadDataUrl(src, `imagelab-${data.model}-${Date.now()}-${i + 1}.${data.format}`);
-    const toEdit = el("button", "", "✎ Éditer");
+    const toEdit = el("button", "", t("edit_btn"));
     toEdit.onclick = () => sendToEdit(src);
     actions.append(dl, toEdit);
     card.append(wrap, actions);
@@ -401,7 +486,7 @@ function addSources(files) {
   if (S.sources.length) setupMask(S.sources[0].url);
 }
 function renderThumbs() {
-  const t = $("thumbs"); t.innerHTML = "";
+  const wrap = $("thumbs"); wrap.innerHTML = "";
   S.sources.forEach((s, i) => {
     const d = el("div", "t");
     const img = el("img"); img.src = s.url;
@@ -411,7 +496,7 @@ function renderThumbs() {
       if (S.sources[0]) { setupMask(S.sources[0].url); }
       else { $("maskEditor").classList.add("hidden"); S.inputDims = null; applyCaps(); }
     };
-    d.append(img, x); t.appendChild(d);
+    d.append(img, x); wrap.appendChild(d);
   });
 }
 
@@ -485,9 +570,9 @@ async function exportMask() {
 // ------------------------------------------------------------------ ui helpers
 function setBusy(b) {
   $("runBtn").disabled = b;
-  $("status").textContent = b ? "Génération en cours… (10–30 s)" : "";
+  $("status").textContent = b ? t("status_generating") : "";
 }
 function showErr(m) { $("errBox").innerHTML = m ? `<div class="err">${m}</div>` : ""; }
-function showRevised(m) { $("revisedBox").innerHTML = m ? `<div class="revised"><b>Prompt révisé :</b> ${m}</div>` : ""; }
+function showRevised(m) { $("revisedBox").innerHTML = m ? `<div class="revised"><b>${t("revised_label")}</b> ${m}</div>` : ""; }
 
 boot();
