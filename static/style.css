@@ -84,12 +84,12 @@ main { display: grid; grid-template-columns: 320px 1fr; gap: 18px; padding: 18px
   border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); font-size: 13px; font-weight: 600; }
 .seg button.active { border-color: var(--accent); color: var(--text); background: #232b3a; }
 
-/* ratio selector — auto height, wraps, sublabel on its own line (no overlap) */
-.seg.ratios { flex-wrap: wrap; }
-.seg.ratios button { flex: 0 1 auto; min-width: 56px; height: auto; padding: 6px 9px;
+/* ratio + definition selectors — auto height, wraps, sublabel on its own line */
+.seg.ratios, .seg.defs { flex-wrap: wrap; }
+.seg.ratios button, .seg.defs button { flex: 0 1 auto; min-width: 56px; height: auto; padding: 6px 9px;
   display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
-.seg.ratios button small { display: block; font-size: 9px; opacity: .55; font-weight: 400; margin-top: 2px; }
-.seg.ratios button.off { opacity: .3; cursor: not-allowed; pointer-events: none; }
+.seg.ratios button small, .seg.defs button small { display: block; font-size: 9px; opacity: .55; font-weight: 400; margin-top: 2px; }
+.seg.ratios button.off, .seg.defs button.off { opacity: .3; cursor: not-allowed; pointer-events: none; }
 .match-input { margin-top: 10px; }
 .size-resolved { margin-top: 8px; color: var(--accent); font-weight: 600; }
 

@@ -6,8 +6,9 @@ const S = {
   models: {},          // id -> model
   model: null,         // current model id
   tab: "generate",     // generate | edit
-  sizeStrategy: "ratio", // ratio | custom | match
+  sizeStrategy: "combo", // combo (ratio×definition) | custom | match
   ratio: "1:1",
+  def: "1k",           // definition tier (long-edge target)
   quality: "high",
   format: "png",
   fidelity: "low",
@@ -23,7 +24,7 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const I18N = {
   fr: {
     tab_generate: "Génération", tab_edit: "Édition · Inpainting", options: "Options",
-    f_dimensions: "Dimensions", match_input: "Garder la taille de l'image source (au plus proche)",
+    f_ratio: "Ratio", f_definition: "Définition", match_input: "Garder la taille de l'image source (au plus proche)",
     ph_width: "larg.", ph_height: "haut.", f_quality: "Qualité", f_transparent: "Fond transparent",
     f_format: "Format de sortie", f_compression: "Compression JPEG", hint_compression: "0 = max qualité",
     f_n: "Nombre d'images", f_fidelity: "Fidélité d'entrée", hint_fidelity: "préserve visages/détails",
@@ -40,6 +41,7 @@ const I18N = {
     trans_native: "alpha natif (PNG)", trans_cutout: "détourage approx. (PNG)", hint_native: "natif",
     hint_posttraite: "post-traité", hint_edit_15only: "édition : 1.5 seult", hint_unavail: "indispo",
     lock_15_fixed: "1.5 : ratios fixes", tip_20_only: "Disponible seulement sur GPT-image 2.0",
+    lock_15_native: "1.5 : tailles natives", tip_def_native: "Définition réglable sur GPT-image 2.0 uniquement",
     size_constraint: "Côtés ×{edge} · côté long ≤ {max}px · ratio ≤ {ratio}:1",
     suffix_source: " · d'après la source", suffix_custom: " · perso", perso: "Perso.", perso_sub: "W×H",
     rtag_square: "carré", rtag_landscape: "paysage", rtag_portrait: "portrait", rtag_photo: "photo",
@@ -50,7 +52,7 @@ const I18N = {
   },
   en: {
     tab_generate: "Generate", tab_edit: "Edit · Inpainting", options: "Options",
-    f_dimensions: "Dimensions", match_input: "Match the source image size (closest valid)",
+    f_ratio: "Ratio", f_definition: "Resolution", match_input: "Match the source image size (closest valid)",
     ph_width: "width", ph_height: "height", f_quality: "Quality", f_transparent: "Transparent background",
     f_format: "Output format", f_compression: "JPEG compression", hint_compression: "0 = max quality",
     f_n: "Number of images", f_fidelity: "Input fidelity", hint_fidelity: "preserves faces/details",
@@ -67,6 +69,7 @@ const I18N = {
     trans_native: "native alpha (PNG)", trans_cutout: "approx. cutout (PNG)", hint_native: "native",
     hint_posttraite: "post-processed", hint_edit_15only: "editing: 1.5 only", hint_unavail: "unavailable",
     lock_15_fixed: "1.5: fixed ratios", tip_20_only: "Available only on GPT-image 2.0",
+    lock_15_native: "1.5: native sizes", tip_def_native: "Resolution adjustable on GPT-image 2.0 only",
     size_constraint: "Edges ×{edge} · long side ≤ {max}px · ratio ≤ {ratio}:1",
     suffix_source: " · from source", suffix_custom: " · custom", perso: "Custom", perso_sub: "W×H",
     rtag_square: "square", rtag_landscape: "landscape", rtag_portrait: "portrait", rtag_photo: "photo",
@@ -115,6 +118,24 @@ const RATIOS = [
   { id: "9:16", w: 9,  h: 16, tag: "rtag_story" },
   { id: "21:9", w: 21, h: 9,  tag: "rtag_cine" },
 ];
+
+// Definition tiers = target for the LONG edge (px). Only meaningful on free-size
+// models (2.0); on 1.5 the size is locked to the native preset for the ratio.
+const DEFINITIONS = [
+  { id: "1k",  long: 1024, label: "1K",      sub: "1024 px" },
+  { id: "fhd", long: 1920, label: "Full HD", sub: "1920 px" },
+  { id: "2k",  long: 2560, label: "2K",      sub: "2560 px" },
+  { id: "4k",  long: 3840, label: "4K",      sub: "3840 px" },
+];
+// Combine a ratio + a long-edge target into a valid free-size (clamped to limits).
+function sizeFor(ratioId, defLong) {
+  const r = RATIOS.find((x) => x.id === ratioId) || RATIOS[0];
+  const ratio = r.w / r.h;
+  let W, H;
+  if (r.w >= r.h) { W = defLong; H = defLong / ratio; }
+  else { H = defLong; W = defLong * ratio; }
+  return clampFree(R16(W), R16(H));
+}
 
 const R16 = (x) => Math.round(x / 16) * 16;
 // Pick a valid concrete size for a ratio on a free-size model (~1.6 MP target).
@@ -205,7 +226,7 @@ function selectModel(id) {
   // defaults per model
   if (!caps.qualities.includes(S.quality)) S.quality = caps.defaultQuality;
   if (!caps.formats.includes(S.format)) S.format = caps.formats[0];
-  if (caps.sizeMode === "preset" && S.sizeStrategy === "custom") S.sizeStrategy = "ratio";
+  if (caps.sizeMode === "preset" && S.sizeStrategy === "custom") S.sizeStrategy = "combo";
   const rr = RATIOS.find((r) => r.id === S.ratio);
   if (caps.sizeMode === "preset" && rr && !rr.preset) S.ratio = "1:1";
 
@@ -275,54 +296,67 @@ function toggleField(id, enabled) { $(id).classList.toggle("disabled", !enabled)
 
 function renderSizeControls(caps) {
   const free = caps.sizeMode === "free";
-  const seg = $("ratioSeg"); seg.innerHTML = "";
+  const matching = S.sizeStrategy === "match";
+  const custom = S.sizeStrategy === "custom";
+
+  // ---- RATIO selector
+  const rseg = $("ratioSeg"); rseg.innerHTML = "";
   const ratioOK = (r) => free || !!(r && r.preset);
   if (!ratioOK(RATIOS.find((r) => r.id === S.ratio))) S.ratio = "1:1";
-
   RATIOS.forEach((r) => {
     const on = ratioOK(r);
     const b = el("button", on ? "" : "off", `${r.id}<small>${t(r.tag)}</small>`);
     if (!on) b.title = t("tip_20_only");
-    if (S.sizeStrategy === "ratio" && S.ratio === r.id && on) b.classList.add("active");
-    if (on) b.onclick = () => { S.sizeStrategy = "ratio"; S.ratio = r.id; applyCaps(); };
-    seg.appendChild(b);
+    if (!custom && !matching && S.ratio === r.id && on) b.classList.add("active");
+    if (on) b.onclick = () => { S.ratio = r.id; if (custom) S.sizeStrategy = "combo"; applyCaps(); };
+    rseg.appendChild(b);
+  });
+  rseg.style.opacity = (matching || custom) ? ".4" : "1";
+  rseg.style.pointerEvents = (matching || custom) ? "none" : "auto";
+  $("ratioHint").innerHTML = free ? "" : `<span class="lock">${t("lock_15_fixed")}</span>`;
+
+  // ---- DEFINITION selector (long-edge target) — free models only
+  const dseg = $("defSeg"); dseg.innerHTML = "";
+  DEFINITIONS.forEach((d) => {
+    const b = el("button", free ? "" : "off", `${d.label}<small>${d.sub}</small>`);
+    if (!free) b.title = t("tip_def_native");
+    if (free && !custom && !matching && S.def === d.id) b.classList.add("active");
+    if (free) b.onclick = () => { S.def = d.id; if (matching || custom) S.sizeStrategy = "combo"; applyCaps(); };
+    dseg.appendChild(b);
   });
   if (free) {
     const c = el("button", "", `${t("perso")}<small>${t("perso_sub")}</small>`);
-    if (S.sizeStrategy === "custom") c.classList.add("active");
+    if (custom) c.classList.add("active");
     c.onclick = () => { S.sizeStrategy = "custom"; syncCustomSize(); applyCaps(); };
-    seg.appendChild(c);
+    dseg.appendChild(c);
   }
+  dseg.style.opacity = matching ? ".4" : "1";
+  dseg.style.pointerEvents = matching ? "none" : "auto";
+  $("defHint").innerHTML = free ? "" : `<span class="lock">${t("lock_15_native")}</span>`;
 
-  // "match input size" — edit mode with a loaded source
+  // ---- custom W×H inputs (free + custom strategy)
+  $("customSize").classList.toggle("hidden", !(free && custom));
+
+  // ---- match-source toggle (edit mode with a loaded source)
   const canMatch = S.tab === "edit" && S.sources.length > 0;
   $("matchInputWrap").classList.toggle("hidden", !canMatch);
-  if (!canMatch && S.sizeStrategy === "match") S.sizeStrategy = "ratio";
+  if (!canMatch && matching) S.sizeStrategy = "combo";
   $("matchInput").checked = S.sizeStrategy === "match";
-  const matching = S.sizeStrategy === "match";
-  seg.style.opacity = matching ? ".4" : "1";
-  seg.style.pointerEvents = matching ? "none" : "auto";
 
-  $("customSize").classList.toggle("hidden", !(free && S.sizeStrategy === "custom"));
-
-  if (free) {
-    const c = caps.freeSize;
-    $("sizeConstraint").textContent = t("size_constraint", { edge: c.edgeMultiple, max: c.maxLongEdge, ratio: c.maxRatio });
-    $("sizeHint").innerHTML = "";
-  } else {
-    $("sizeConstraint").textContent = "";
-    $("sizeHint").innerHTML = `<span class="lock">${t("lock_15_fixed")}</span>`;
-  }
-
+  // ---- constraint + resolved
+  $("sizeConstraint").textContent = free
+    ? t("size_constraint", { edge: caps.freeSize.edgeMultiple, max: caps.freeSize.maxLongEdge, ratio: caps.freeSize.maxRatio })
+    : "";
   const resolved = currentSize();
-  const suffix = matching ? t("suffix_source") : (S.sizeStrategy === "custom" ? t("suffix_custom") : "");
+  const suffix = matching ? t("suffix_source") : (custom ? t("suffix_custom") : "");
   $("sizeResolved").textContent = resolved ? `→ ${resolved}${suffix}` : "";
 }
 
 function syncCustomSize() {
   const caps = S.models[S.model].caps;
+  const d = DEFINITIONS.find((x) => x.id === S.def) || DEFINITIONS[0];
   const r = RATIOS.find((x) => x.id === S.ratio) || RATIOS[0];
-  const base = caps.sizeMode === "free" ? bestSize(r.w, r.h) : (r.preset || "1024x1024");
+  const base = caps.sizeMode === "free" ? sizeFor(S.ratio, d.long) : (r.preset || "1024x1024");
   const [w, h] = base.split("x");
   $("sizeW").value = w; $("sizeH").value = h;
 }
@@ -339,9 +373,11 @@ function currentSize() {
     const h = parseInt($("sizeH").value || "1024", 10);
     return `${w}x${h}`;
   }
+  // combo: ratio × definition
   const r = RATIOS.find((x) => x.id === S.ratio) || RATIOS[0];
   if (caps.sizeMode === "preset") return r.preset || caps.presets[0];
-  return r.preset || bestSize(r.w, r.h);  // free: keep native sizes for 1:1/3:2/2:3
+  const d = DEFINITIONS.find((x) => x.id === S.def) || DEFINITIONS[0];
+  return sizeFor(S.ratio, d.long);
 }
 
 // ------------------------------------------------------------------ tabs
@@ -367,7 +403,7 @@ function bindStaticInputs() {
   $("sizeW").addEventListener("input", onCustom);
   $("sizeH").addEventListener("input", onCustom);
   $("matchInput").addEventListener("change", (e) => {
-    S.sizeStrategy = e.target.checked ? "match" : "ratio"; applyCaps();
+    S.sizeStrategy = e.target.checked ? "match" : "combo"; applyCaps();
   });
   $("runBtn").addEventListener("click", run);
 }

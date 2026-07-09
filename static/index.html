@@ -33,19 +33,24 @@
     <aside class="panel" id="optionsPanel">
       <h3><span data-i18n="options">Options</span> <span id="optModelName" style="color:var(--text)"></span></h3>
 
-      <div class="field" id="fSize">
-        <label><span data-i18n="f_dimensions">Dimensions</span> <span class="hint" id="sizeHint"></span></label>
+      <div class="field" id="fRatio">
+        <label><span data-i18n="f_ratio">Ratio</span> <span class="hint" id="ratioHint"></span></label>
         <div class="seg ratios" id="ratioSeg"></div>
+      </div>
+
+      <div class="field" id="fDefinition">
+        <label><span data-i18n="f_definition">Définition</span> <span class="hint" id="defHint"></span></label>
+        <div class="seg defs" id="defSeg"></div>
+        <div class="custom-size hidden" id="customSize">
+          <input type="number" id="sizeW" step="16" min="512" max="3840" data-i18n-ph="ph_width" placeholder="larg." />
+          <span>×</span>
+          <input type="number" id="sizeH" step="16" min="512" max="3840" data-i18n-ph="ph_height" placeholder="haut." />
+        </div>
         <div class="match-input hidden" id="matchInputWrap">
           <label class="switch">
             <input type="checkbox" id="matchInput" /><span class="track"></span>
             <span class="hint" data-i18n="match_input">Garder la taille de l'image source (au plus proche)</span>
           </label>
-        </div>
-        <div class="custom-size hidden" id="customSize">
-          <input type="number" id="sizeW" step="16" min="512" max="3840" data-i18n-ph="ph_width" placeholder="larg." />
-          <span>×</span>
-          <input type="number" id="sizeH" step="16" min="512" max="3840" data-i18n-ph="ph_height" placeholder="haut." />
         </div>
         <div class="hint size-resolved" id="sizeResolved"></div>
         <div class="hint" id="sizeConstraint"></div>
