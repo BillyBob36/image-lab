@@ -6,3 +6,6 @@ _ref_app.py
 venv/
 *.log
 .DS_Store
+
+# Google OAuth client secret export (keep local)
+client_secret_*.json
