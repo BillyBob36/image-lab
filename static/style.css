@@ -79,8 +79,15 @@ main { display: grid; grid-template-columns: 320px 1fr; gap: 18px; padding: 18px
 .seg button { flex: 1; min-width: 54px; padding: 8px 6px; border-radius: 8px; cursor: pointer;
   border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); font-size: 13px; font-weight: 600; }
 .seg button.active { border-color: var(--accent); color: var(--text); background: #232b3a; }
-.seg.sizes button { flex-direction: column; line-height: 1.1; }
-.seg.sizes button small { font-size: 9px; opacity: .6; font-weight: 400; }
+
+/* ratio selector — auto height, wraps, sublabel on its own line (no overlap) */
+.seg.ratios { flex-wrap: wrap; }
+.seg.ratios button { flex: 0 1 auto; min-width: 56px; height: auto; padding: 6px 9px;
+  display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
+.seg.ratios button small { display: block; font-size: 9px; opacity: .55; font-weight: 400; margin-top: 2px; }
+.seg.ratios button.off { opacity: .3; cursor: not-allowed; pointer-events: none; }
+.match-input { margin-top: 10px; }
+.size-resolved { margin-top: 8px; color: var(--accent); font-weight: 600; }
 
 input[type="text"], input[type="number"], textarea, select {
   width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);

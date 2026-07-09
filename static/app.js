@@ -6,17 +6,54 @@ const S = {
   models: {},          // id -> model
   model: null,         // current model id
   tab: "generate",     // generate | edit
-  sizeMode: "preset",  // preset selection vs custom (free models)
-  size: "1024x1024",
+  sizeStrategy: "ratio", // ratio | custom | match
+  ratio: "1:1",
   quality: "high",
   format: "png",
   fidelity: "low",
   moderation: "auto",
   sources: [],         // {file, url} for edit
+  inputDims: null,     // {w,h} of first source image
 };
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+// Aspect ratios. `preset` = a native size the fixed-size models (1.5) support;
+// ratios without it are only reachable on free-size models (2.0).
+const RATIOS = [
+  { id: "1:1",  w: 1,  h: 1,  preset: "1024x1024", tag: "carré" },
+  { id: "3:2",  w: 3,  h: 2,  preset: "1536x1024", tag: "paysage" },
+  { id: "2:3",  w: 2,  h: 3,  preset: "1024x1536", tag: "portrait" },
+  { id: "4:3",  w: 4,  h: 3,  tag: "photo" },
+  { id: "3:4",  w: 3,  h: 4,  tag: "photo↕" },
+  { id: "16:9", w: 16, h: 9,  tag: "large" },
+  { id: "9:16", w: 9,  h: 16, tag: "story" },
+  { id: "21:9", w: 21, h: 9,  tag: "ciné" },
+];
+
+const R16 = (x) => Math.round(x / 16) * 16;
+// Pick a valid concrete size for a ratio on a free-size model (~1.6 MP target).
+function bestSize(rw, rh) {
+  const ratio = rw / rh, target = 1600000;
+  let w = R16(Math.sqrt(target * ratio)), h = R16(Math.sqrt(target / ratio));
+  return clampFree(w, h);
+}
+// Snap arbitrary WxH to the nearest valid free-size (×16, long≤3840, ratio≤3:1, 0.65–8.3 MP).
+function snapFree(w, h) { return clampFree(R16(w), R16(h)); }
+function clampFree(w, h) {
+  let W = Math.max(512, w), H = Math.max(512, h);
+  if (Math.max(W, H) / Math.min(W, H) > 3) { if (W > H) W = R16(H * 3); else H = R16(W * 3); }
+  const sd = 3840 / Math.max(W, H); if (sd < 1) { W = R16(W * sd); H = R16(H * sd); }
+  if (W * H > 8294400) { const s = Math.sqrt(8294400 / (W * H)); W = R16(W * s); H = R16(H * s); }
+  if (W * H < 655360) { const s = Math.sqrt(655360 / (W * H)) * 1.03; W = R16(W * s); H = R16(H * s); }
+  return `${Math.max(512, W)}x${Math.max(512, H)}`;
+}
+function nearestPreset(presets, w, h) {
+  const ir = w / h;
+  return presets.map((p) => { const [pw, ph] = p.split("x").map(Number); return { p, d: Math.abs(pw / ph - ir) }; })
+    .sort((a, b) => a.d - b.d)[0].p;
+}
 
 // global fetch: bounce to login on 401 page-side
 async function api(url, opts) {
@@ -81,8 +118,9 @@ function selectModel(id) {
   // defaults per model
   if (!caps.qualities.includes(S.quality)) S.quality = caps.defaultQuality;
   if (!caps.formats.includes(S.format)) S.format = caps.formats[0];
-  if (caps.sizeMode === "preset" && S.sizeMode === "custom") S.sizeMode = "preset";
-  if (!caps.presets.includes(S.size) && caps.sizeMode === "preset") S.size = caps.presets[0];
+  if (caps.sizeMode === "preset" && S.sizeStrategy === "custom") S.sizeStrategy = "ratio";
+  const rr = RATIOS.find((r) => r.id === S.ratio);
+  if (caps.sizeMode === "preset" && rr && !rr.preset) S.ratio = "1:1";
 
   applyCaps();
 }
@@ -91,34 +129,8 @@ function selectModel(id) {
 function applyCaps() {
   const caps = S.models[S.model].caps;
 
-  // ---- sizes
-  const presets = $("sizePresets");
-  presets.innerHTML = "";
-  const dims = { "1024x1024": "carré", "1536x1024": "paysage", "1024x1536": "portrait" };
-  caps.presets.forEach((p) => {
-    const b = el("button", "", `${p}<small>${dims[p] || ""}</small>`);
-    b.classList.toggle("active", S.sizeMode === "preset" && S.size === p);
-    b.onclick = () => { S.sizeMode = "preset"; S.size = p; applyCaps(); };
-    presets.appendChild(b);
-  });
-  const free = caps.sizeMode === "free";
-  // "Personnalisé" chip for free models
-  if (free) {
-    const c = el("button", "", "Perso.<small>libre / 4K</small>");
-    c.classList.toggle("active", S.sizeMode === "custom");
-    c.onclick = () => { S.sizeMode = "custom"; syncCustomSize(); applyCaps(); };
-    presets.appendChild(c);
-  }
-  $("customSize").style.display = (free && S.sizeMode === "custom") ? "flex" : "none";
-  if (free) {
-    const c = caps.freeSize;
-    $("sizeConstraint").textContent = `Côtés multiples de ${c.edgeMultiple} px · côté long ≤ ${c.maxLongEdge} · ratio ≤ ${c.maxRatio}:1`;
-    $("sizeHint").textContent = "presets ou résolution libre";
-    $("fSize").querySelector(".lock")?.remove();
-  } else {
-    $("sizeConstraint").textContent = "";
-    $("sizeHint").innerHTML = `<span class="lock">1.5 : tailles fixes</span>`;
-  }
+  // ---- sizes / ratios
+  renderSizeControls(caps);
 
   // ---- quality
   buildSeg("qualitySeg", caps.qualities, S.quality, (v) => { S.quality = v; applyCaps(); },
@@ -174,19 +186,75 @@ function buildSeg(id, values, current, onPick, labels) {
 }
 function toggleField(id, enabled) { $(id).classList.toggle("disabled", !enabled); }
 
-function syncCustomSize() {
-  const [w, h] = (S.size.includes("x") ? S.size : "1024x1024").split("x");
-  if (!$("sizeW").value) $("sizeW").value = w;
-  if (!$("sizeH").value) $("sizeH").value = h;
+function renderSizeControls(caps) {
+  const free = caps.sizeMode === "free";
+  const seg = $("ratioSeg"); seg.innerHTML = "";
+  const ratioOK = (r) => free || !!(r && r.preset);
+  if (!ratioOK(RATIOS.find((r) => r.id === S.ratio))) S.ratio = "1:1";
+
+  RATIOS.forEach((r) => {
+    const on = ratioOK(r);
+    const b = el("button", on ? "" : "off", `${r.id}<small>${r.tag}</small>`);
+    if (!on) b.title = "Disponible seulement sur GPT-image 2.0";
+    if (S.sizeStrategy === "ratio" && S.ratio === r.id && on) b.classList.add("active");
+    if (on) b.onclick = () => { S.sizeStrategy = "ratio"; S.ratio = r.id; applyCaps(); };
+    seg.appendChild(b);
+  });
+  if (free) {
+    const c = el("button", "", "Perso.<small>W×H</small>");
+    if (S.sizeStrategy === "custom") c.classList.add("active");
+    c.onclick = () => { S.sizeStrategy = "custom"; syncCustomSize(); applyCaps(); };
+    seg.appendChild(c);
+  }
+
+  // "match input size" — edit mode with a loaded source
+  const canMatch = S.tab === "edit" && S.sources.length > 0;
+  $("matchInputWrap").classList.toggle("hidden", !canMatch);
+  if (!canMatch && S.sizeStrategy === "match") S.sizeStrategy = "ratio";
+  $("matchInput").checked = S.sizeStrategy === "match";
+  const matching = S.sizeStrategy === "match";
+  seg.style.opacity = matching ? ".4" : "1";
+  seg.style.pointerEvents = matching ? "none" : "auto";
+
+  $("customSize").classList.toggle("hidden", !(free && S.sizeStrategy === "custom"));
+
+  if (free) {
+    const c = caps.freeSize;
+    $("sizeConstraint").textContent = `Côtés ×${c.edgeMultiple} · côté long ≤ ${c.maxLongEdge}px · ratio ≤ ${c.maxRatio}:1`;
+    $("sizeHint").innerHTML = "";
+  } else {
+    $("sizeConstraint").textContent = "";
+    $("sizeHint").innerHTML = `<span class="lock">1.5 : ratios fixes</span>`;
+  }
+
+  const resolved = currentSize();
+  const suffix = matching ? " · d'après la source" : (S.sizeStrategy === "custom" ? " · perso" : "");
+  $("sizeResolved").textContent = resolved ? `→ ${resolved}${suffix}` : "";
 }
+
+function syncCustomSize() {
+  const caps = S.models[S.model].caps;
+  const r = RATIOS.find((x) => x.id === S.ratio) || RATIOS[0];
+  const base = caps.sizeMode === "free" ? bestSize(r.w, r.h) : (r.preset || "1024x1024");
+  const [w, h] = base.split("x");
+  $("sizeW").value = w; $("sizeH").value = h;
+}
+
 function currentSize() {
   const caps = S.models[S.model].caps;
-  if (caps.sizeMode === "free" && S.sizeMode === "custom") {
+  if (S.sizeStrategy === "match" && S.inputDims) {
+    return caps.sizeMode === "preset"
+      ? nearestPreset(caps.presets, S.inputDims.w, S.inputDims.h)
+      : snapFree(S.inputDims.w, S.inputDims.h);
+  }
+  if (caps.sizeMode === "free" && S.sizeStrategy === "custom") {
     const w = parseInt($("sizeW").value || "1024", 10);
     const h = parseInt($("sizeH").value || "1024", 10);
     return `${w}x${h}`;
   }
-  return S.size;
+  const r = RATIOS.find((x) => x.id === S.ratio) || RATIOS[0];
+  if (caps.sizeMode === "preset") return r.preset || caps.presets[0];
+  return r.preset || bestSize(r.w, r.h);  // free: keep native sizes for 1:1/3:2/2:3
 }
 
 // ------------------------------------------------------------------ tabs
@@ -210,8 +278,12 @@ function bindStaticInputs() {
   $("compression").addEventListener("input", (e) => { $("compressionVal").textContent = e.target.value; });
   $("nImages").addEventListener("input", (e) => { $("nVal").textContent = e.target.value; });
   $("transparent").addEventListener("change", applyCaps);
-  $("sizeW").addEventListener("change", () => { S.size = currentSize(); });
-  $("sizeH").addEventListener("change", () => { S.size = currentSize(); });
+  const onCustom = () => { S.sizeStrategy = "custom"; applyCaps(); };
+  $("sizeW").addEventListener("input", onCustom);
+  $("sizeH").addEventListener("input", onCustom);
+  $("matchInput").addEventListener("change", (e) => {
+    S.sizeStrategy = e.target.checked ? "match" : "ratio"; applyCaps();
+  });
   $("runBtn").addEventListener("click", run);
 }
 
@@ -334,7 +406,11 @@ function renderThumbs() {
     const d = el("div", "t");
     const img = el("img"); img.src = s.url;
     const x = el("button", "", "×");
-    x.onclick = () => { S.sources.splice(i, 1); renderThumbs(); if (S.sources[0]) setupMask(S.sources[0].url); else $("maskEditor").classList.add("hidden"); };
+    x.onclick = () => {
+      S.sources.splice(i, 1); renderThumbs();
+      if (S.sources[0]) { setupMask(S.sources[0].url); }
+      else { $("maskEditor").classList.add("hidden"); S.inputDims = null; applyCaps(); }
+    };
     d.append(img, x); t.appendChild(d);
   });
 }
@@ -351,11 +427,13 @@ function setupMask(url) {
     MASK.pctx = MASK.paint.getContext("2d");
     MASK.bctx.drawImage(img, 0, 0);
     MASK.pctx.clearRect(0, 0, MASK.paint.width, MASK.paint.height);
+    S.inputDims = { w: img.naturalWidth, h: img.naturalHeight };
     // display size caps at container width
     const stage = $("maskStage");
     stage.style.width = Math.min(img.naturalWidth, 520) + "px";
     $("maskEditor").classList.remove("hidden");
     bindPaint();
+    applyCaps();  // refresh resolved size / match toggle now that we know dims
   };
   img.src = url;
 }

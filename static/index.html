@@ -30,14 +30,21 @@
       <h3>Options <span id="optModelName" style="color:var(--text)"></span></h3>
 
       <div class="field" id="fSize">
-        <label>Taille <span class="hint" id="sizeHint"></span></label>
-        <div class="seg sizes" id="sizePresets"></div>
-        <div class="custom-size" id="customSize">
+        <label>Dimensions <span class="hint" id="sizeHint"></span></label>
+        <div class="seg ratios" id="ratioSeg"></div>
+        <div class="match-input hidden" id="matchInputWrap">
+          <label class="switch">
+            <input type="checkbox" id="matchInput" /><span class="track"></span>
+            <span class="hint">Garder la taille de l'image source (au plus proche)</span>
+          </label>
+        </div>
+        <div class="custom-size hidden" id="customSize">
           <input type="number" id="sizeW" step="16" min="512" max="3840" placeholder="larg." />
           <span>×</span>
           <input type="number" id="sizeH" step="16" min="512" max="3840" placeholder="haut." />
         </div>
-        <div class="hint" id="sizeConstraint" style="margin-top:6px"></div>
+        <div class="hint size-resolved" id="sizeResolved"></div>
+        <div class="hint" id="sizeConstraint"></div>
       </div>
 
       <div class="field" id="fQuality">
