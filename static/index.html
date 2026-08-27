@@ -111,6 +111,7 @@
         <div class="drop" id="drop" data-i18n="drop_zone">Cliquez ou déposez une ou plusieurs images ici</div>
         <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" multiple class="hidden" />
         <div class="thumbs" id="thumbs"></div>
+        <div class="hint multi-tip hidden" id="multiTip" data-i18n="multi_tip">Plusieurs images : désignez-les dans le prompt par « image 1 », « image 2 »… Utilisez les flèches pour les réordonner.</div>
 
         <div class="mask-editor hidden" id="maskEditor">
           <label style="font-size:13px;font-weight:600;display:block;margin:14px 0 8px" data-i18n="mask_label">
@@ -126,6 +127,7 @@
             <label class="switch" style="font-size:12px">
               <input type="checkbox" id="maskEnabled" checked /><span class="track"></span> <span data-i18n="use_mask">Utiliser le masque</span>
             </label>
+            <span class="hint hidden" id="maskScope" data-i18n="mask_scope">Le masque ne s'applique qu'à l'image 1.</span>
           </div>
         </div>
       </div>

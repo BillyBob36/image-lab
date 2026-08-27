@@ -28,8 +28,11 @@ const I18N = {
     ph_width: "larg.", ph_height: "haut.", f_quality: "Qualité", f_transparent: "Fond transparent",
     f_format: "Format de sortie", f_compression: "Compression JPEG", hint_compression: "0 = max qualité",
     f_n: "Nombre d'images", f_fidelity: "Fidélité d'entrée", hint_fidelity: "préserve visages/détails",
-    f_moderation: "Modération", edit_sources: "Images source", hint_edit_sources: "glisser-déposer · multi-images OK",
+    f_moderation: "Modération", edit_sources: "Images source", hint_edit_sources: "glisser-déposer · plusieurs images OK",
     drop_zone: "Cliquez ou déposez une ou plusieurs images ici",
+    multi_tip: "Plusieurs images : désignez-les dans le prompt par « image 1 », « image 2 »… Utilisez les flèches pour les réordonner.",
+    move_left: "Reculer", move_right: "Avancer", remove_img: "Retirer",
+    mask_scope: "Le masque ne s'applique qu'à l'image 1.",
     mask_label: "Masque d'inpainting — peignez la zone à modifier (le reste est préservé)",
     brush: "Pinceau", clear: "Effacer", use_mask: "Utiliser le masque", logout: "Déconnexion",
     empty_state: "Les images générées apparaîtront ici.", run_generate: "Générer", run_edit: "Éditer",
@@ -56,8 +59,11 @@ const I18N = {
     ph_width: "width", ph_height: "height", f_quality: "Quality", f_transparent: "Transparent background",
     f_format: "Output format", f_compression: "JPEG compression", hint_compression: "0 = max quality",
     f_n: "Number of images", f_fidelity: "Input fidelity", hint_fidelity: "preserves faces/details",
-    f_moderation: "Moderation", edit_sources: "Source images", hint_edit_sources: "drag & drop · multi-image OK",
+    f_moderation: "Moderation", edit_sources: "Source images", hint_edit_sources: "drag & drop · multiple images OK",
     drop_zone: "Click or drop one or more images here",
+    multi_tip: "With several images, refer to them in the prompt as “image 1”, “image 2”… Use the arrows to reorder them.",
+    move_left: "Move back", move_right: "Move forward", remove_img: "Remove",
+    mask_scope: "The mask only applies to image 1.",
     mask_label: "Inpainting mask — paint the area to change (the rest is preserved)",
     brush: "Brush", clear: "Clear", use_mask: "Use mask", logout: "Sign out",
     empty_state: "Generated images will appear here.", run_generate: "Generate", run_edit: "Edit",
@@ -99,6 +105,7 @@ function setLang(lang) {
   document.querySelectorAll("#langToggle button").forEach((b) => b.classList.toggle("active", b.dataset.lang === lang));
   applyI18nStatic();
   renderModelToggle();
+  renderThumbs();          // thumb button titles are built at render time
   updatePromptPlaceholder();
   applyCaps();
 }
@@ -541,19 +548,48 @@ function addSources(files) {
   renderThumbs();
   if (S.sources.length) setupMask(S.sources[0].url);
 }
+
+// A mask is a single-image operation: Azure applies it to image 1 only, so
+// painting one while composing several sources is almost always a mistake.
+function syncMaskScope() {
+  const multi = S.sources.length > 1;
+  const box = $("maskEnabled");
+  if (multi && box.checked) box.checked = false;
+  $("maskScope").classList.toggle("hidden", !multi);
+}
 function renderThumbs() {
   const wrap = $("thumbs"); wrap.innerHTML = "";
   S.sources.forEach((s, i) => {
     const d = el("div", "t");
     const img = el("img"); img.src = s.url;
-    const x = el("button", "", "×");
-    x.onclick = () => {
-      S.sources.splice(i, 1); renderThumbs();
-      if (S.sources[0]) { setupMask(S.sources[0].url); }
-      else { $("maskEditor").classList.add("hidden"); S.inputDims = null; applyCaps(); }
-    };
-    d.append(img, x); wrap.appendChild(d);
+    const num = el("span", "n", String(i + 1));
+    const x = el("button", "del", "×"); x.title = t("remove_img");
+    x.onclick = () => { S.sources.splice(i, 1); afterSourceChange(); };
+    d.append(img, num, x);
+    if (S.sources.length > 1) {
+      const nav = el("div", "nav");
+      const left = el("button", "", "‹"); left.title = t("move_left");
+      left.disabled = i === 0;
+      left.onclick = () => moveSource(i, i - 1);
+      const right = el("button", "", "›"); right.title = t("move_right");
+      right.disabled = i === S.sources.length - 1;
+      right.onclick = () => moveSource(i, i + 1);
+      nav.append(left, right); d.appendChild(nav);
+    }
+    wrap.appendChild(d);
   });
+  $("multiTip").classList.toggle("hidden", S.sources.length < 2);
+  syncMaskScope();
+}
+function moveSource(from, to) {
+  const [item] = S.sources.splice(from, 1);
+  S.sources.splice(to, 0, item);
+  afterSourceChange();
+}
+function afterSourceChange() {
+  renderThumbs();
+  if (S.sources[0]) setupMask(S.sources[0].url);
+  else { $("maskEditor").classList.add("hidden"); S.inputDims = null; applyCaps(); }
 }
 
 // ---- mask editor

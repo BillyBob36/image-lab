@@ -140,7 +140,10 @@ class AzureImageClient:
         if moderation:
             fields.append(("moderation", moderation))
 
-        files: list[tuple[str, str, bytes]] = [("image", fn, data) for fn, data in images]
+        # Azure rejects a repeated "image" part ("Duplicate parameter"); a multi-image
+        # compose has to use the PHP-style array field name instead.
+        field = "image[]" if len(images) > 1 else "image"
+        files: list[tuple[str, str, bytes]] = [(field, fn, data) for fn, data in images]
         if mask is not None:
             files.append(("mask", mask[0], mask[1]))
 
