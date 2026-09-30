@@ -4,7 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Image Lab — GPT-image 2.0 & 1.5</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=gallery1" />
+  <link rel="stylesheet" href="/gallery.css?v=gallery1" />
   <link rel="icon" type="image/png" href="/favicon.png" />
 </head>
 <body>
@@ -24,11 +25,12 @@
   </header>
 
   <div class="tabs">
-    <div class="tab active" data-tab="generate" data-i18n="tab_generate">Génération</div>
-    <div class="tab" data-tab="edit" data-i18n="tab_edit">Édition · Inpainting</div>
+    <button class="tab active" data-tab="generate" data-i18n="tab_generate" aria-pressed="true">Génération</button>
+    <button class="tab" data-tab="edit" data-i18n="tab_edit" aria-pressed="false">Édition · Inpainting</button>
+    <button class="tab" data-tab="gallery" data-i18n="tab_gallery" aria-pressed="false">Ma galerie</button>
   </div>
 
-  <main>
+  <main id="studio">
     <!-- OPTIONS PANEL -->
     <aside class="panel" id="optionsPanel">
       <div class="sheet-handle" aria-hidden="true"></div>
@@ -147,11 +149,55 @@
 
       <div id="errBox"></div>
       <div id="revisedBox"></div>
+      <div id="savedNotice" class="saved-notice hidden" role="status"></div>
 
       <div class="results" id="results"></div>
       <div class="placeholder" id="emptyState" data-i18n="empty_state">Les images générées apparaîtront ici.</div>
     </section>
   </main>
+
+  <section class="gallery hidden" id="galleryPanel" aria-labelledby="galleryTitle">
+    <div class="gallery-heading">
+      <div><h1 id="galleryTitle" data-i18n="tab_gallery">Ma galerie</h1>
+        <p data-i18n="gallery_intro">Vos créations sont enregistrées automatiquement. Retrouvez-les ici à tout moment.</p></div>
+      <button class="btn-ghost" id="galleryImport" data-i18n="gallery_import">Ajouter des images</button>
+      <input type="file" id="galleryFiles" accept="image/png,image/jpeg,image/webp" multiple hidden />
+    </div>
+    <div class="gallery-toolbar">
+      <label class="gallery-search"><span data-i18n="gallery_search_label">Rechercher</span>
+        <input type="search" id="gallerySearch" maxlength="200" data-i18n-ph="gallery_search" placeholder="Prompt, nom ou modèle…" /></label>
+      <span id="galleryCount" class="hint" aria-live="polite"></span>
+      <button class="btn-ghost" id="galleryRefresh" data-i18n="gallery_refresh">Actualiser</button>
+    </div>
+    <p id="galleryMessage" role="status"></p>
+    <div class="gallery-grid" id="galleryGrid" aria-busy="false"></div>
+    <div class="gallery-empty hidden" id="galleryEmpty">
+      <h2 data-i18n="gallery_empty">Votre première image vous attend</h2>
+      <p data-i18n="gallery_empty_hint">Générez une image ou ajoutez celles que vous aviez déjà téléchargées.</p>
+      <button class="btn-primary" id="galleryCreate" data-i18n="run_generate">Générer</button>
+    </div>
+    <button class="btn-ghost gallery-more hidden" id="galleryMore" data-i18n="gallery_more">Afficher la suite</button>
+  </section>
+
+  <dialog id="imageViewer" class="image-viewer" aria-labelledby="viewerTitle">
+    <div class="viewer-top"><h2 id="viewerTitle" data-i18n="preview">Aperçu</h2>
+      <span id="viewerPosition"></span><button class="btn-ghost" id="viewerClose" data-i18n="close">Fermer</button></div>
+    <div class="viewer-layout">
+      <div class="viewer-stage" id="viewerStage"><img id="viewerImage" alt="" /><p id="viewerImageStatus" role="status"></p></div>
+      <aside class="viewer-details">
+        <p id="viewerMeta" class="hint"></p>
+        <p id="viewerPrompt" class="viewer-prompt"></p>
+        <div class="viewer-actions">
+          <a id="viewerDownload" class="btn-primary" download data-i18n="download_original">Télécharger l'original</a>
+          <button id="viewerZoom" class="btn-ghost" data-i18n="zoom_original">Taille réelle</button>
+          <button id="viewerEdit" class="btn-ghost" data-i18n="edit_btn">Éditer</button>
+          <button id="viewerReuse" class="btn-ghost" data-i18n="reuse_prompt">Réutiliser le prompt</button>
+        </div>
+      </aside>
+    </div>
+    <div class="viewer-navigation"><button class="btn-ghost" id="viewerPrev" data-i18n="previous">Précédente</button>
+      <button class="btn-ghost" id="viewerNext" data-i18n="next">Suivante</button></div>
+  </dialog>
 
   <!-- mobile-only: backdrop + sticky action bar -->
   <div class="sheet-backdrop" id="sheetBackdrop"></div>
@@ -160,6 +206,7 @@
     <button class="mbar-run btn-primary" id="runBtnMobile">Générer</button>
   </div>
 
-  <script src="/app.js"></script>
+  <script src="/gallery.js?v=gallery1"></script>
+  <script src="/app.js?v=gallery1"></script>
 </body>
 </html>

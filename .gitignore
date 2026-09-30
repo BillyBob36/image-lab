@@ -9,3 +9,5 @@ venv/
 
 # Google OAuth client secret export (keep local)
 client_secret_*.json
+data/
+test-artifacts/

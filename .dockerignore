@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+client_secret_*.json
+.claude
+.venv
+venv
+__pycache__
+*.pyc
+*.log
+data
+tests
+test-artifacts
+logo-image-tool*.png

@@ -108,6 +108,8 @@ function setLang(lang) {
   renderThumbs();          // thumb button titles are built at render time
   updatePromptPlaceholder();
   applyCaps();
+  renderGallery();
+  if ($("imageViewer").open) renderViewer();
 }
 function bindLang() {
   document.querySelectorAll("#langToggle button").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
@@ -210,8 +212,10 @@ async function boot() {
   bindEdit();
   bindLang();
   bindMobile();
+  bindGallery();
   selectModel(S.model);
   setLang(LANG);  // apply translations to static + dynamic UI
+  if (location.hash === "#gallery") selectTab("gallery");
 }
 
 function renderUser(me) {
@@ -410,15 +414,26 @@ function currentSize() {
 // ------------------------------------------------------------------ tabs
 function bindTabs() {
   document.querySelectorAll(".tab").forEach((tabEl) => {
-    tabEl.onclick = () => {
-      document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-      tabEl.classList.add("active");
-      S.tab = tabEl.dataset.tab;
-      $("editSources").classList.toggle("hidden", S.tab !== "edit");
-      updatePromptPlaceholder();
-      applyCaps();
-    };
+    tabEl.onclick = () => selectTab(tabEl.dataset.tab);
   });
+}
+
+function selectTab(tab) {
+  S.tab = tab;
+  const gallery = tab === "gallery";
+  document.querySelectorAll(".tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.tab === tab);
+    b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
+  });
+  openSheet(false);
+  document.body.classList.toggle("gallery-view", gallery);
+  $("studio").classList.toggle("hidden", gallery);
+  $("galleryPanel").classList.toggle("hidden", !gallery);
+  $("editSources").classList.toggle("hidden", tab !== "edit");
+  history.replaceState(null, "", gallery ? "#gallery" : location.pathname);
+  updatePromptPlaceholder();
+  applyCaps();
+  if (gallery) loadGallery();
 }
 
 function bindStaticInputs() {
@@ -437,6 +452,7 @@ function bindStaticInputs() {
 
 // ------------------------------------------------------------------ run
 async function run() {
+  if (S.busy || S.tab === "gallery") return;
   const prompt = $("prompt").value.trim();
   if (!prompt) { showErr(t("err_prompt_required")); return; }
   if (S.tab === "edit" && S.sources.length === 0) { showErr(t("err_need_source")); return; }
@@ -445,6 +461,8 @@ async function run() {
   try {
     const data = S.tab === "edit" ? await runEdit(prompt) : await runGenerate(prompt);
     renderResults(data);
+    if (data.storage_warning) showErr(t("storage_warning"));
+    if (S.tab === "gallery") loadGallery();
     if (data.revised_prompt) showRevised(data.revised_prompt);
   } catch (e) {
     showErr(e.message || t("err_unknown"));
@@ -504,14 +522,26 @@ function renderResults(data) {
   const grid = $("results");
   grid.innerHTML = "";
   $("emptyState").classList.add("hidden");
+  const saved = data.saved_images || [];
+  const previewItems = data.images.map((src, i) => saved[i] || {url: src, download_url: src,
+    format: data.format, model: data.model, prompt: "", mode: "generate"});
+  $("savedNotice").classList.toggle("hidden", !saved.length);
+  $("savedNotice").replaceChildren();
+  if (saved.length) {
+    const link = el("a"); link.href = "#gallery"; link.textContent = t("saved_to_gallery");
+    link.onclick = (e) => { e.preventDefault(); selectTab("gallery"); };
+    $("savedNotice").append(link);
+  }
   data.images.forEach((src, i) => {
     const card = el("div", "card");
-    const wrap = el("div", "imgwrap");
+    const wrap = el("button", "imgwrap result-preview");
+    wrap.setAttribute("aria-label", t("preview"));
+    wrap.onclick = () => openViewer(previewItems, i);
     const img = el("img"); img.src = src; img.alt = `résultat ${i + 1}`;
     wrap.appendChild(img);
     const actions = el("div", "actions");
     const dl = el("button", "", t("dl"));
-    dl.onclick = () => downloadDataUrl(src, `imagelab-${data.model}-${Date.now()}-${i + 1}.${data.format}`);
+    dl.onclick = () => downloadDataUrl(saved[i]?.download_url || src, `imagelab-${data.model}-${Date.now()}-${i + 1}.${data.format}`);
     const toEdit = el("button", "", t("edit_btn"));
     toEdit.onclick = () => sendToEdit(src);
     actions.append(dl, toEdit);
@@ -522,8 +552,11 @@ function renderResults(data) {
 function downloadDataUrl(url, name) { const a = el("a"); a.href = url; a.download = name; a.click(); }
 
 async function sendToEdit(dataUrl) {
-  const blob = await (await fetch(dataUrl)).blob();
-  const file = new File([blob], `source-${Date.now()}.png`, { type: blob.type || "image/png" });
+  const response = await api(dataUrl);
+  if (!response.ok) throw new Error(t("image_unavailable"));
+  const blob = await response.blob();
+  const ext = {"image/png": "png", "image/jpeg": "jpeg", "image/webp": "webp"}[blob.type] || "png";
+  const file = new File([blob], `source-${Date.now()}.${ext}`, { type: blob.type || "image/png" });
   addSources([file]);
   document.querySelector('.tab[data-tab="edit"]').click();
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -661,12 +694,13 @@ async function exportMask() {
 
 // ------------------------------------------------------------------ ui helpers
 function setBusy(b) {
+  S.busy = b;
   const desk = $("runBtn"), mob = $("runBtnMobile");
   if (desk) desk.disabled = b;
   if (mob) { mob.disabled = b; mob.textContent = b ? t("busy_short") : runLabel(); }
   $("status").textContent = b ? t("status_generating") : "";
 }
-function showErr(m) { $("errBox").innerHTML = m ? `<div class="err">${m}</div>` : ""; }
-function showRevised(m) { $("revisedBox").innerHTML = m ? `<div class="revised"><b>${t("revised_label")}</b> ${m}</div>` : ""; }
+function showErr(m) { $("errBox").replaceChildren(); if (m) { const p = el("div", "err"); p.textContent = m; $("errBox").append(p); } }
+function showRevised(m) { $("revisedBox").replaceChildren(); if (m) { const p = el("div", "revised"); p.textContent = t("revised_label") + " " + m; $("revisedBox").append(p); } }
 
 boot();

@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import os
 import secrets
+import sqlite3
 import sys
 import threading
 import urllib.parse
@@ -21,14 +22,16 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, Query
+from fastapi.responses import JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.concurrency import run_in_threadpool
 
 from azure_client import AzureImageClient, AzureImageError
 from bg_remove import remove_uniform_bg, CUTOUT_HINT
 from capabilities import MODELS, DEFAULT_MODEL, public_models, validate_size
+from gallery import ImageStore, StorageUnavailable, MAX_IMAGE_BYTES
 
 # ---------------------------------------------------------------- config
 BASE_DIR = Path(__file__).resolve().parent
@@ -61,6 +64,32 @@ client = AzureImageClient(AZURE_ENDPOINT, AZURE_API_KEY, AZURE_API_VERSION)
 _sem = threading.Semaphore(MAX_CONCURRENCY)
 
 app = FastAPI(title="Image Lab")
+store = ImageStore(Path(os.environ.get("IMAGE_STORAGE_DIR", str(BASE_DIR / "data"))),
+                   required=os.environ.get("IMAGE_STORAGE_REQUIRED") == "1")
+
+
+def _owner(request):
+    return request.session["user_email"] if AUTH_ENABLED else "anonymous"
+
+
+def _provider(method, **kwargs):
+    with _sem:
+        return getattr(client, method)(**kwargs)
+
+
+async def _persist(request, images, **metadata):
+    try:
+        items = await run_in_threadpool(store.save_data_urls, images, owner=_owner(request), **metadata)
+        return {"images": [item["url"] for item in items], "saved_images": items}
+    except (OSError, sqlite3.Error, StorageUnavailable, ValueError):
+        # Preserve a paid result even if storage fails after the preflight check.
+        print("[gallery] Could not save provider result; returning originals to the browser", file=sys.stderr)
+        return {"images": images, "saved_images": [], "storage_warning": True}
+
+
+@app.exception_handler(StorageUnavailable)
+async def storage_unavailable(request, exc):
+    return JSONResponse({"detail": str(exc)}, status_code=503)
 
 
 # ---------------------------------------------------------------- helpers
@@ -157,21 +186,23 @@ async def api_generate(request: Request):
         except (TypeError, ValueError):
             comp = None
 
+    await run_in_threadpool(store.ensure_writable, n)
     try:
-        with _sem:
-            resp = client.generate(
-                m["deployment"], prompt=prompt, size=size, quality=quality, n=n,
+        resp = await run_in_threadpool(_provider, "generate",
+                deployment=m["deployment"], prompt=prompt, size=size, quality=quality, n=n,
                 output_format=output_format, background=background,
                 output_compression=comp, moderation=moderation,
             )
     except AzureImageError as e:
         raise HTTPException(e.status, e.message)
 
-    images = _data_urls(resp, output_format, cutout=cutout)
+    images = await run_in_threadpool(_data_urls, resp, output_format, cutout=cutout)
     if not images:
         raise HTTPException(502, "Réponse Azure vide (aucune image).")
     revised = (resp.get("data") or [{}])[0].get("revised_prompt")
-    return {"images": images, "model": model_id, "size": size, "format": output_format,
+    saved = await _persist(request, images, prompt=body.get("prompt", "").strip(),
+                           revised_prompt=revised, model=model_id, mode="generate", quality=quality)
+    return {**saved, "model": model_id, "size": size, "format": output_format,
             "revised_prompt": revised, "usage": resp.get("usage")}
 
 
@@ -237,21 +268,69 @@ async def api_edit(
     fidelity = input_fidelity if (input_fidelity in ("low", "high") and caps["inputFidelity"]) else None
     mod = moderation if moderation in ("auto", "low") else None
 
+    await run_in_threadpool(store.ensure_writable, n)
     try:
-        with _sem:
-            resp = client.edit(
-                m["deployment"], prompt=prompt.strip(), images=img_parts, mask=mask_part,
+        resp = await run_in_threadpool(_provider, "edit",
+                deployment=m["deployment"], prompt=prompt.strip(), images=img_parts, mask=mask_part,
                 size=size, quality=quality, n=n, output_format=output_format,
                 background=background, input_fidelity=fidelity, moderation=mod,
             )
     except AzureImageError as e:
         raise HTTPException(e.status, e.message)
 
-    out = _data_urls(resp, output_format)
+    out = await run_in_threadpool(_data_urls, resp, output_format)
     if not out:
         raise HTTPException(502, "Réponse Azure vide (aucune image).")
-    return {"images": out, "model": model, "size": size, "format": output_format,
+    saved = await _persist(request, out, prompt=prompt.strip(), model=model, mode="edit", quality=quality)
+    return {**saved, "model": model, "size": size, "format": output_format,
             "usage": resp.get("usage")}
+
+
+# ---------------------------------------------------------------- Private gallery
+@app.get("/api/health")
+def health():
+    store._check_root()
+    return {"status": "ok"}
+
+
+@app.get("/api/gallery")
+def gallery_list(request: Request, q: str = Query("", max_length=200),
+                 before: str = Query("", max_length=100), limit: int = Query(24, ge=1, le=60)):
+    try:
+        result = store.list(_owner(request), query=q.strip(), before=before, limit=limit)
+        return JSONResponse(result, headers={"Cache-Control": "private, no-store"})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, "La galerie est indisponible pour le moment.")
+
+
+@app.post("/api/gallery/import")
+async def gallery_import(request: Request, image: UploadFile = File(...)):
+    raw = await image.read(MAX_IMAGE_BYTES + 1)
+    try:
+        items = await run_in_threadpool(store.save, [raw], owner=_owner(request),
+                                        original_name=image.filename or "", deduplicate=True)
+        return {"item": items[0]}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, "Impossible d'enregistrer l'image pour le moment.")
+
+
+@app.get("/api/gallery/{image_id}/{variant}")
+def gallery_file(request: Request, image_id: str, variant: str):
+    if variant not in {"image", "thumbnail", "download"}:
+        raise HTTPException(404, "Image introuvable.")
+    result = store.file(_owner(request), image_id, thumbnail=variant == "thumbnail")
+    if result is None:
+        raise HTTPException(404, "Image introuvable.")
+    path, item = result
+    mime = "image/webp" if variant == "thumbnail" else "image/" + item["format"]
+    filename = f"imagelab-{item['created_at'][:10]}-{image_id[:8]}.{item['format']}"
+    return FileResponse(path, media_type=mime,
+                        filename=filename if variant == "download" else None,
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 
 # ---------------------------------------------------------------- Auth
@@ -259,7 +338,7 @@ _PUBLIC_PREFIXES = (
     "/auth/", "/login.html", "/style.css", "/app.js",
     "/logo.png", "/favicon", "/openapi.json", "/docs", "/redoc",
 )
-_PUBLIC_EXACT = {"/api/me", "/api/config"}
+_PUBLIC_EXACT = {"/api/me", "/api/config", "/api/health"}
 
 
 def _is_public_path(path: str) -> bool:
