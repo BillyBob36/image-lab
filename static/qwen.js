@@ -117,7 +117,7 @@ function renderQwen(){
 }
 function showQwenResult(job){
  const hash=job.id+':'+job.results.length;if(Q.shown===hash)return;Q.shown=hash;
- const saved=job.results.map(r=>r.gallery).filter(Boolean);
+ const saved=job.results.map(r=>r.gallery||null);
  renderResults({images:job.results.map(r=>r.gallery?.url||r.url),saved_images:saved,model:'qwen-image-2.1',format:'png'});
 }
 async function runQwen(prompt){

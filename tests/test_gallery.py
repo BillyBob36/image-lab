@@ -70,6 +70,31 @@ class GalleryTests(unittest.TestCase):
         self.assertEqual(first["id"], second["id"])
         self.assertNotEqual(first["id"], other["id"])
 
+    def test_delete_removes_owned_original_thumbnail_and_index(self):
+        item, keep = self.store.save([self.raw, self.raw], owner="a")
+        other = self.store.save([self.raw], owner="b")[0]
+        self.assertFalse(self.store.delete("b", item["id"]))
+        for unsafe in ["../gallery.sqlite3", "A" * 32, ""]:
+            self.assertFalse(self.store.delete("a", unsafe))
+        self.assertTrue(self.store.delete("a", item["id"]))
+        self.assertFalse((self.store.root / item["id"]).exists())
+        self.assertIsNone(self.store.file("a", item["id"]))
+        self.assertFalse(self.store.delete("a", item["id"]))
+        self.assertEqual(self.store.list("a")["total"], 1)
+        self.assertEqual(self.store.file("a", keep["id"])[0].read_bytes(), self.raw)
+        self.assertEqual(self.store.file("b", other["id"])[0].read_bytes(), self.raw)
+        replacement = self.store.save([self.raw], owner="a", deduplicate=True)[0]
+        self.assertNotEqual(replacement["id"], item["id"])
+
+    def test_delete_failure_restores_files_and_index(self):
+        item = self.store.save([self.raw], owner="a")[0]
+        with patch.object(self.store, "_sync_dir", side_effect=OSError("disk failure")):
+            with self.assertRaises(OSError):
+                self.store.delete("a", item["id"])
+        self.assertEqual(self.store.list("a")["total"], 1)
+        self.assertEqual(self.store.file("a", item["id"])[0].read_bytes(), self.raw)
+        self.assertFalse(any(p.name.startswith(".deleted-") for p in self.store.root.iterdir()))
+
     def test_invalid_image_does_not_create_files_or_index_rows(self):
         with self.assertRaises(ValueError):
             self.store.save([b"<svg>not a raster</svg>"], owner="a")
@@ -179,6 +204,29 @@ class ApiTests(unittest.TestCase):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/api/gallery").status_code, 401)
         self.assertEqual(self.client.post("/api/gallery/import", files={"image": ("a.png", self.raw)}).status_code, 401)
+
+    def test_delete_api_requires_session_origin_and_owner(self):
+        item = self.store.save([self.raw], owner="a@example.com")[0]
+        path = "/api/gallery/" + item["id"]
+        self.assertEqual(self.client.delete(path).status_code, 403)
+        token = self.client.get("/api/gallery/session").json()["token"]
+        headers = {"X-Gallery-Token": token}
+        self.assertEqual(self.client.delete(path, headers={**headers, "Origin": "https://untrusted.example"}).status_code, 403)
+        self.login("b@example.com")
+        other_token = self.client.get("/api/gallery/session").json()["token"]
+        self.assertEqual(self.client.delete(path, headers={"X-Gallery-Token": other_token}).status_code, 404)
+        self.assertTrue((self.store.root / item["id"]).exists())
+        self.login("a@example.com")
+        headers = {"X-Gallery-Token": self.client.get("/api/gallery/session").json()["token"], "Origin": "https://testserver"}
+        response = self.client.delete(path, headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"deleted": item["id"]})
+        self.assertEqual(self.client.get("/api/gallery").json()["total"], 0)
+        for variant in ["image", "thumbnail", "download"]:
+            self.assertEqual(self.client.get(path + "/" + variant).status_code, 404)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.delete(path, headers=headers).status_code, 401)
+        self.assertEqual(self.client.get("/api/gallery/session").status_code, 401)
 
 
 if __name__ == "__main__":

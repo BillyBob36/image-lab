@@ -40,6 +40,10 @@ class GalleryCloud(Cloud):
     def collect(self,job,results,store):
         outputs=super().collect(job,results,store)
         for result in outputs:
+            previous=next((item for item in job.get('results',[]) if item['index']==result['index'] and item.get('sha256')==result.get('sha256') and item.get('gallery')),None)
+            if previous:
+                result['gallery']=previous['gallery']
+                continue
             items=self.gallery.save([Path(result['path']).read_bytes()],owner=job['owner'],prompt=job['prompt'],
                 model='qwen-image-2.1',mode='edit' if job['references'] else 'generate',quality=f"{job['steps']} steps, seed {result['seed']}",deduplicate=True)
             result['gallery']=items[0]
@@ -64,6 +68,9 @@ def register(app,gallery,owner,provider=None,start_engine=True):
     def public(job):
         value=store.public_job(job)
         for ref in value['references']:ref.pop('owner',None)
+        for result in value['results']:
+            saved=result.get('gallery')
+            if saved and not gallery.get(job['owner'],saved['id']):result['gallery']=None
         return value
     def observe_a10():
         nonlocal a10

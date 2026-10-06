@@ -535,15 +535,17 @@ function renderResults(data) {
   const saved = data.saved_images || [];
   const previewItems = data.images.map((src, i) => saved[i] || {url: src, download_url: src,
     format: data.format, model: data.model, prompt: "", mode: "generate"});
-  $("savedNotice").classList.toggle("hidden", !saved.length);
+  const hasSaved = saved.some(Boolean);
+  $("savedNotice").classList.toggle("hidden", !hasSaved);
   $("savedNotice").replaceChildren();
-  if (saved.length) {
+  if (hasSaved) {
     const link = el("a"); link.href = "#gallery"; link.textContent = t("saved_to_gallery");
     link.onclick = (e) => { e.preventDefault(); selectTab("gallery"); };
     $("savedNotice").append(link);
   }
   data.images.forEach((src, i) => {
     const card = el("div", "card");
+    if (saved[i]?.id) card.dataset.imageId = saved[i].id;
     const wrap = el("button", "imgwrap result-preview");
     wrap.setAttribute("aria-label", t("preview"));
     wrap.onclick = () => openViewer(previewItems, i);

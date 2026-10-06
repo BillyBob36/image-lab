@@ -16,7 +16,7 @@ Le serveur utilise `QWEN_AZURE_TENANT_ID`, `QWEN_AZURE_CLIENT_ID`, `QWEN_AZURE_C
 
 ## Images et galerie
 
-Les nouvelles générations et éditions conservent leurs octets originaux, une miniature WebP et leurs métadonnées (prompt, modèle, dimensions, date). L'onglet **Ma galerie** propose la recherche, l'agrandissement, le téléchargement de l'original et la reprise en édition. Les fichiers sont servis par des routes authentifiées qui vérifient leur propriétaire.
+Les nouvelles générations et éditions conservent leurs octets originaux, une miniature WebP et leurs métadonnées (prompt, modèle, dimensions, date). L'onglet **Ma galerie** propose la recherche, l'agrandissement, le téléchargement de l'original et la reprise en édition. **Supprimer** est disponible sur chaque image et dans l'aperçu agrandi, avec confirmation. La suppression retire l'original, la miniature et l'entrée de galerie du compte connecté ; elle ne touche pas les références ni l'historique des demandes Qwen. Les fichiers sont servis par des routes authentifiées qui vérifient leur propriétaire. La route de suppression vérifie aussi un jeton de session et l'origine de la requête.
 
 Les anciennes versions ne conservaient les images que dans la page ouverte. **Ajouter des images** permet de récupérer celles téléchargées précédemment. Une importation répétée du même fichier par le même compte ne crée pas de doublon. Les sources d'édition ne sont pas archivées automatiquement ; les résultats le sont.
 

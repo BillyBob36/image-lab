@@ -5,6 +5,7 @@ import base64
 from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
+import logging
 from io import BytesIO
 import os
 from pathlib import Path
@@ -194,6 +195,41 @@ class ImageStore:
         with closing(self._connect()) as db:
             row = db.execute("SELECT * FROM images WHERE owner=? AND id=?", (owner, image_id)).fetchone()
             return self.public(row) if row else None
+
+    def delete(self, owner, image_id):
+        if not re.fullmatch(r"[a-f0-9]{32}", image_id):
+            return False
+        with self.lock, closing(self._connect()) as db:
+            folder = self.root / image_id
+            retired = None
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                row = db.execute("SELECT id FROM images WHERE owner=? AND id=?", (owner, image_id)).fetchone()
+                if not row:
+                    db.rollback()
+                    return False
+                # Only retire this owned UUID folder, within the actual storage root.
+                if folder.is_symlink() or folder.resolve().parent != self.root.resolve():
+                    raise OSError("invalid image folder")
+                if folder.exists():
+                    retired = self.root / (".deleted-" + uuid.uuid4().hex)
+                    folder.rename(retired)
+                db.execute("DELETE FROM images WHERE owner=? AND id=?", (owner, image_id))
+                self._sync_dir(self.root)
+                db.commit()
+            except Exception:
+                db.rollback()
+                if retired is not None and retired.exists():
+                    retired.rename(folder)
+                raise
+            if retired is not None:
+                try:
+                    shutil.rmtree(retired)
+                    self._sync_dir(self.root)
+                except OSError:
+                    # The committed deletion stays inaccessible even if disk cleanup fails.
+                    logging.getLogger(__name__).exception("Could not clean a retired image folder")
+            return True
 
     def file(self, owner, image_id, thumbnail=False):
         item = self.get(owner, image_id)

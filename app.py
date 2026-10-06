@@ -321,6 +321,28 @@ async def gallery_import(request: Request, image: UploadFile = File(...)):
         raise HTTPException(503, "Impossible d'enregistrer l'image pour le moment.")
 
 
+@app.get("/api/gallery/session")
+def gallery_session(request: Request):
+    request.session.setdefault("gallery_csrf", secrets.token_urlsafe(32))
+    return JSONResponse({"token": request.session["gallery_csrf"]}, headers={"Cache-Control": "private, no-store"})
+
+
+@app.delete("/api/gallery/{image_id}")
+def gallery_delete(request: Request, image_id: str):
+    token = request.session.get("gallery_csrf", "")
+    if not token or not secrets.compare_digest(request.headers.get("x-gallery-token", ""), token):
+        raise HTTPException(403, "La session a expiré. Réessayez la suppression.")
+    origin = request.headers.get("origin")
+    if origin and urllib.parse.urlsplit(origin).netloc != request.headers.get("host"):
+        raise HTTPException(403, "Origine non autorisée.")
+    try:
+        if not store.delete(_owner(request), image_id):
+            raise HTTPException(404, "Image introuvable.")
+    except (OSError, sqlite3.Error):
+        raise HTTPException(503, "Impossible de supprimer l'image pour le moment. Réessayez.")
+    return JSONResponse({"deleted": image_id}, headers={"Cache-Control": "private, no-store"})
+
+
 @app.get("/api/gallery/{image_id}/{variant}")
 def gallery_file(request: Request, image_id: str, variant: str):
     if variant not in {"image", "thumbnail", "download"}:

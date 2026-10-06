@@ -1,6 +1,7 @@
 "use strict";
 
-const G = {items: [], cursor: null, total: 0, request: 0, loading: false, loaded: false, viewing: [], index: 0};
+const G = {items: [], cursor: null, total: 0, request: 0, loading: false, loaded: false, viewing: [], index: 0,
+  deleting: null, deleteBusy: false, deleted: new Set()};
 
 function bindGallery() {
   Object.assign(I18N.fr, {
@@ -11,6 +12,10 @@ function bindGallery() {
     gallery_no_match: "Aucune image ne correspond à cette recherche.", gallery_loading: "Chargement des images…",
     gallery_importing: "Enregistrement des images…", gallery_imported: "{n} image(s) ajoutée(s) à votre galerie.",
     gallery_failed: "Impossible de charger la galerie. Utilisez Actualiser pour réessayer.",
+    delete_image: "Supprimer", delete_image_title: "Supprimer cette image ?", delete_cancel: "Annuler",
+    delete_image_hint: "L'image et sa miniature seront supprimées de votre galerie. Cette action est définitive.",
+    delete_image_busy: "Suppression…", delete_image_done: "Image supprimée de votre galerie.",
+    delete_image_failed: "Impossible de supprimer l'image. Réessayez.",
     preview: "Agrandir l'image", close: "Fermer", download_original: "Télécharger l'original", zoom_original: "Taille réelle",
     zoom_fit: "Adapter à l'écran", reuse_prompt: "Réutiliser le prompt", previous: "Précédente", next: "Suivante",
     imported_image: "Image importée", generated_image: "Image générée", edited_image: "Image éditée",
@@ -26,6 +31,10 @@ function bindGallery() {
     gallery_no_match: "No images match this search.", gallery_loading: "Loading images…",
     gallery_importing: "Saving images…", gallery_imported: "{n} image(s) added to your gallery.",
     gallery_failed: "Unable to load the gallery. Use Refresh to try again.",
+    delete_image: "Delete", delete_image_title: "Delete this image?", delete_cancel: "Cancel",
+    delete_image_hint: "The image and its thumbnail will be removed from your gallery. This action is permanent.",
+    delete_image_busy: "Deleting…", delete_image_done: "Image deleted from your gallery.",
+    delete_image_failed: "Unable to delete the image. Please try again.",
     preview: "Enlarge image", close: "Close", download_original: "Download original", zoom_original: "Actual size",
     zoom_fit: "Fit to screen", reuse_prompt: "Reuse prompt", previous: "Previous", next: "Next",
     imported_image: "Imported image", generated_image: "Generated image", edited_image: "Edited image",
@@ -61,7 +70,7 @@ function bindGallery() {
     $("galleryImport").disabled = false;
   };
   $("viewerClose").onclick = () => $("imageViewer").close();
-  $("imageViewer").addEventListener("close", () => { document.body.style.overflow = ""; });
+  $("imageViewer").addEventListener("close", () => { if (!$("deleteImageDialog").open) document.body.style.overflow = ""; });
   $("imageViewer").addEventListener("click", (event) => { if (event.target === $("imageViewer")) $("imageViewer").close(); });
   $("imageViewer").addEventListener("keydown", (event) => {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -88,6 +97,70 @@ function bindGallery() {
     $("promptCount").textContent = item.prompt.length;
     $("imageViewer").close(); selectTab("generate"); $("prompt").focus();
   };
+  $("viewerDelete").onclick = () => confirmImageDeletion(G.viewing[G.index]);
+  $("deleteImageCancel").onclick = () => $("deleteImageDialog").close();
+  $("deleteImageConfirm").onclick = deleteImage;
+  $("deleteImageDialog").addEventListener("cancel", event => { if (G.deleteBusy) event.preventDefault(); });
+  $("deleteImageDialog").addEventListener("close", () => {
+    G.deleting = null;
+    if (!$("imageViewer").open) document.body.style.overflow = "";
+  });
+}
+
+function confirmImageDeletion(item) {
+  if (!item?.id || G.deleted.has(item.id) || G.deleteBusy) return;
+  G.deleting = item;
+  $("deleteImageName").textContent = imageTitle(item);
+  $("deleteImagePreview").src = item.thumbnail_url || item.url;
+  $("deleteImageError").textContent = "";
+  $("deleteImageConfirm").textContent = t("delete_image");
+  $("deleteImageDialog").showModal();
+  document.body.style.overflow = "hidden";
+}
+
+async function deleteImage() {
+  const item = G.deleting;
+  if (!item || G.deleteBusy) return;
+  G.deleteBusy = true;
+  $("deleteImageCancel").disabled = $("deleteImageConfirm").disabled = true;
+  $("deleteImageConfirm").textContent = t("delete_image_busy");
+  $("deleteImageError").textContent = "";
+  try {
+    const session = await api("/api/gallery/session");
+    if (!session.ok) throw new Error(t("delete_image_failed"));
+    const {token} = await session.json();
+    const response = await api("/api/gallery/" + item.id, {method: "DELETE", headers: {"X-Gallery-Token": token}});
+    const data = await response.json().catch(() => ({}));
+    // A second tab may already have removed the same owned item.
+    if (!response.ok && response.status !== 404) throw new Error(data.detail || t("delete_image_failed"));
+    G.deleted.add(item.id);
+    const current = G.viewing[G.index]?.id;
+    G.viewing = G.viewing.filter(value => value.id !== item.id);
+    if ($("imageViewer").open) {
+      if (!G.viewing.length) $("imageViewer").close();
+      else {
+        const unchanged = G.viewing.findIndex(value => value.id === current);
+        G.index = unchanged >= 0 ? unchanged : Math.min(G.index, G.viewing.length - 1);
+        renderViewer();
+      }
+    }
+    document.querySelectorAll("#results [data-image-id]").forEach(card => {
+      if (card.dataset.imageId === item.id) card.remove();
+    });
+    if (!$("results").children.length) {
+      $("savedNotice").classList.add("hidden");
+      $("emptyState").classList.remove("hidden");
+    }
+    $("deleteImageDialog").close();
+    await loadGallery();
+    galleryMessage(t("delete_image_done"));
+    if (S.tab === "gallery" && !$("imageViewer").open) $("galleryRefresh").focus({preventScroll: true});
+  } catch (e) { $("deleteImageError").textContent = e.message || t("delete_image_failed"); }
+  finally {
+    G.deleteBusy = false;
+    $("deleteImageCancel").disabled = $("deleteImageConfirm").disabled = false;
+    $("deleteImageConfirm").textContent = t("delete_image");
+  }
 }
 
 function galleryMessage(message, error=false) {
@@ -109,7 +182,7 @@ async function loadGallery(append=false) {
     if (!response.ok) throw new Error(t("gallery_failed"));
     const data = await response.json();
     if (sequence !== G.request) return;
-    G.items = append ? [...G.items, ...data.items] : data.items;
+    G.items = (append ? [...G.items, ...data.items] : data.items).filter(item => !G.deleted.has(item.id));
     G.cursor = data.next_cursor; G.total = data.total; G.loaded = true;
     renderGallery();
     galleryMessage(!G.items.length && params.get("q") ? t("gallery_no_match") : "");
@@ -157,13 +230,19 @@ function renderGallery() {
     const actions = el("div", "gallery-card-actions");
     const open = el("button", "btn-ghost"); open.textContent = t("preview"); open.onclick = preview.onclick;
     const download = el("a", "btn-ghost"); download.href = item.download_url; download.download = ""; download.textContent = t("dl");
-    actions.append(open, download); caption.append(title, meta, actions); card.append(preview, caption);
+    const remove = el("button", "btn-ghost btn-danger"); remove.textContent = t("delete_image");
+    remove.setAttribute("aria-label", t("delete_image") + " : " + imageTitle(item).slice(0, 100));
+    remove.onclick = () => confirmImageDeletion(item);
+    actions.append(open, download, remove); caption.append(title, meta, actions); card.append(preview, caption);
     $("galleryGrid").append(card);
   });
 }
 
 function openViewer(items, index) {
-  G.viewing = items; G.index = index;
+  const selected = items[index];
+  G.viewing = items.filter(item => !G.deleted.has(item.id));
+  G.index = G.viewing.indexOf(selected);
+  if (G.index < 0) return;
   renderViewer();
   $("imageViewer").showModal();
   document.body.style.overflow = "hidden";
@@ -185,6 +264,7 @@ function renderViewer() {
   $("viewerDownload").href = item.download_url;
   $("viewerDownload").download = `imagelab-${item.id || Date.now()}.${item.format}`;
   $("viewerReuse").classList.toggle("hidden", !item.prompt);
+  $("viewerDelete").classList.toggle("hidden", !item.id);
   $("viewerPrev").disabled = G.index === 0;
   $("viewerNext").disabled = G.index === G.viewing.length - 1;
   $("viewerStage").classList.remove("zoomed");

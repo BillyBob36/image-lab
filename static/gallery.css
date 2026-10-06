@@ -22,6 +22,20 @@
 .gallery-caption .hint { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
 .gallery-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .gallery-card-actions a { text-decoration: none; }
+.btn-ghost.btn-danger { color: var(--danger); }
+.btn-primary.btn-danger { background: #b72e42; color: #fff; border-color: #b72e42; }
+.btn-danger:hover:not(:disabled) { filter: brightness(1.15); }
+.gallery-card-actions .btn-danger { margin-left: auto; }
+.delete-dialog { box-sizing: border-box; width: min(460px, calc(100vw - 28px)); max-height: 90dvh; overflow: auto; border: 1px solid var(--border); border-radius: 12px; padding: 24px; background: var(--bg); color: var(--text); }
+.delete-dialog::backdrop { background: #000b; }
+.delete-dialog h2 { margin: 0 0 20px; font-size: 20px; }
+.delete-image-summary { display: flex; align-items: center; gap: 16px; }
+.delete-image-summary img { width: 80px; height: 80px; flex-shrink: 0; object-fit: contain; background: var(--panel); border-radius: 8px; }
+.delete-image-summary p { margin: 0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+#deleteImageHint { color: var(--muted); line-height: 1.6; }
+#deleteImageError { color: var(--danger); }
+#deleteImageError:empty { display: none; }
+.delete-dialog-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 .gallery-empty { padding: 70px 16px; text-align: center; }
 .gallery-empty h2 { font-size: 22px; font-weight: 600; }
 .gallery-empty p { color: var(--muted); }

@@ -1,6 +1,6 @@
 import io,json,tempfile,unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock,patch
 from fastapi import FastAPI,Request
 from fastapi.testclient import TestClient
 from starlette.middleware.sessions import SessionMiddleware
@@ -66,5 +66,30 @@ class QwenTests(unittest.TestCase):
         self.assertEqual(validate_size('qwen-image-2.1','2048x1152'),'2048x1152')
         for size in ['auto','3840x2160','1024x1000']:
             with self.assertRaises(ValueError):validate_size('qwen-image-2.1',size)
+
+    def test_deleted_gallery_result_remains_available_in_job_history(self):
+        item=self.gallery.save([self.png],owner='a')[0]
+        job=self.create().json();id=job['id']
+        self.store.update_job(id,status='complete',results=[{'index':0,'gallery':item,'path':'private/path'}])
+        self.assertEqual(self.client.get(f'/api/qwen/jobs/{id}').json()['results'][0]['gallery']['id'],item['id'])
+        self.gallery.delete('a',item['id'])
+        result=self.client.get(f'/api/qwen/jobs/{id}').json()['results'][0]
+        self.assertIsNone(result['gallery'])
+        self.assertEqual(result['url'],f'/api/qwen/jobs/{id}/images/0')
+        self.assertEqual(self.client.get(f'/api/qwen/jobs/{id}').json()['status'],'complete')
+
+    def test_collect_does_not_reimport_deleted_output_when_next_image_arrives(self):
+        item=self.gallery.save([self.png],owner='a')[0]
+        path=Path(self.tmp.name)/'output.png';path.write_bytes(self.png)
+        first={'index':0,'sha256':'first','path':str(path),'gallery':item}
+        job={'owner':'a','prompt':'test','references':[],'steps':12,'results':[first]}
+        self.gallery.delete('a',item['id'])
+        cloud=GalleryCloud(Path(self.tmp.name)/'qwen',self.gallery)
+        outputs=[{'index':0,'sha256':'first','path':str(path),'seed':1},{'index':1,'sha256':'second','path':str(path),'seed':2}]
+        with patch('qwen.cloud.Cloud.collect',return_value=outputs):
+            result=cloud.collect(job,[],self.store)
+        self.assertEqual(result[0]['gallery']['id'],item['id'])
+        self.assertIsNone(self.gallery.get('a',item['id']))
+        self.assertEqual(self.gallery.list('a')['total'],1)
 
 if __name__=='__main__':unittest.main()
