@@ -30,6 +30,19 @@ FREE_SIZE_CONSTRAINTS = {
 }
 
 MODELS: dict[str, dict] = {
+    "qwen-image-2.1": {
+        "id":"qwen-image-2.1", "label":"Qwen Image 2.1", "provider":"qwen",
+        "tagline":"Références multiples, seed et génération sur votre GPU", "availability":"A100",
+        "caps": {
+            "sizeMode":"free", "presets":["1024x1024","2048x1152","1152x2048"],
+            "freeSize":{"edgeMultiple":32,"minEdge":256,"maxLongEdge":2048,"maxRatio":8.0,"minPixels":65536,"maxPixels":4194304},
+            "definitions":[{"id":"1k","long":1024,"label":"1K","sub":"1024 px"},{"id":"2k","long":2048,"label":"2K","sub":"2048 px"}],
+            "qualities":[],"defaultQuality":"","nativeTransparency":False,"transparencyFallback":False,
+            "formats":["png"],"jpegCompression":False,"maxImages":6,"moderation":[],
+            "edit":True,"mask":False,"inputFidelity":False,"multiImage":True,"maxReferences":8,
+            "maxPromptChars":16000,"seed":True,"steps":True,"guidance":True,"negativePrompt":True,"queue":True,
+        },
+    },
     "gpt-image-2": {
         "id": "gpt-image-2",
         "label": "GPT-image 2.0",
@@ -104,6 +117,7 @@ def validate_size(model_id: str, size: str) -> str:
     """Raise ValueError if `size` is not allowed for the model. Returns size."""
     caps = MODELS[model_id]["caps"]
     if size == "auto":
+        if MODELS[model_id].get('provider')=='qwen':raise ValueError('Choisis des dimensions explicites pour Qwen.')
         return size
     if caps["sizeMode"] == "preset":
         if size not in caps["presets"]:

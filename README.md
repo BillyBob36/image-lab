@@ -2,6 +2,18 @@
 
 Atelier Azure GPT-image avec génération, édition et galerie privée par compte Google autorisé.
 
+## Qwen Image 2.1 et choix du modèle
+
+Qwen Image 2.1 utilise l'A100 Azure existante, avec ses poids BF16 et la même archive vérifiée que les générations d'avatars. L'interface conserve le prompt et les références lors d'un changement de modèle, et mémorise séparément les réglages de chaque modèle. La matrice `capabilities.py` pilote les contrôles disponibles et la validation serveur. Les fonctions incompatibles sont désactivées ; celles de Qwen se trouvent dans ses réglages propres.
+
+Qwen accepte jusqu'à huit références entières, une à six images par demande, de 256 à 2048 pixels de côté par multiples de 32, une seed, les étapes et le guidage. Le prompt négatif agit avec un guidage supérieur à 1. Les prompts sont transmis tels quels, sans filtre de contenu ou réécriture ajouté par Image Lab. Le modèle ne propose pas ici de masque, de transparence native ni de génération 4K native.
+
+Les boutons GPU et voyants utilisent l'état Azure réel. Le voyant vert signifie que la machine est démarrée ; le texte précise si Qwen est prêt ou si une autre tâche l'utilise. L'A10 est visible mais son démarrage pour Qwen est désactivé : l'installation BF16 utilise plus de 32 Go de mémoire GPU, contre 24 Go sur l'A10. Une configuration avec déport en RAM demanderait une validation distincte. L'application ne stoppe pas une tâche externe pour s'approprier le GPU.
+
+La file Qwen et les références sont persistées sous `/data/qwen`. Fermer la page n'annule pas une génération. Chaque demande reste isolée par propriétaire, reçoit une clé d'idempotence et conserve son reçu distant avant soumission. La reprise du suivi ne déclenche pas un second appel. Les sorties sont ajoutées à la galerie privée et restent téléchargeables avec leurs réglages. Les annulations sont coopératives. L'arrêt automatique intervient après 15 minutes d'inactivité, valeur réglable ; l'arrêt manuel est refusé tant qu'une demande est en cours ou en attente.
+
+Le serveur utilise `QWEN_AZURE_TENANT_ID`, `QWEN_AZURE_CLIENT_ID`, `QWEN_AZURE_CLIENT_SECRET` via une identité dédiée, limitée à la ressource A100, la lecture de l'A10 et l'échange Blob privé. Aucun secret n'est envoyé au navigateur. Sans ces variables, le développement local utilise la connexion Azure CLI. L'identité de production créée le 6 octobre 2026 possède un secret d'un an : le renouveler dans Coolify avant expiration. `QWEN_ENGINE_DISABLED=1` désactive le worker uniquement pour les tests d'interface locaux.
+
 ## Images et galerie
 
 Les nouvelles générations et éditions conservent leurs octets originaux, une miniature WebP et leurs métadonnées (prompt, modèle, dimensions, date). L'onglet **Ma galerie** propose la recherche, l'agrandissement, le téléchargement de l'original et la reprise en édition. Les fichiers sont servis par des routes authentifiées qui vérifient leur propriétaire.

@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Image Lab — GPT-image 2.0 & 1.5</title>
-  <link rel="stylesheet" href="/style.css?v=gallery1" />
-  <link rel="stylesheet" href="/gallery.css?v=gallery1" />
+  <title>Image Lab — GPT-image et Qwen</title>
+  <link rel="stylesheet" href="/style.css?v=qwen2" />
+  <link rel="stylesheet" href="/gallery.css?v=qwen2" />
+  <link rel="stylesheet" href="/atelier.css?v=qwen2" />
   <link rel="icon" type="image/png" href="/favicon.png" />
 </head>
 <body>
   <header>
     <div class="brand"><img src="/logo.png" class="brand-logo" alt="" /> Image Lab</div>
-    <div class="model-toggle" id="modelToggle"></div>
+
     <div class="spacer"></div>
     <div class="lang-toggle" id="langToggle">
       <button data-lang="fr">FR</button>
@@ -24,6 +25,7 @@
     </div>
   </header>
 
+  <section class="model-deck" aria-label="Choisir le modèle"><div class="model-toggle" id="modelToggle"></div><div id="capabilitySummary" class="capability-summary" aria-live="polite"></div></section>
   <div class="tabs">
     <button class="tab active" data-tab="generate" data-i18n="tab_generate" aria-pressed="true">Génération</button>
     <button class="tab" data-tab="edit" data-i18n="tab_edit" aria-pressed="false">Édition · Inpainting</button>
@@ -99,6 +101,12 @@
         <div class="seg" id="fidelitySeg"></div>
       </div>
 
+      <div class="field qwen-options hidden" id="qwenOptions">
+        <label for="qwenTitle">Nom de la demande <span class="hint">facultatif</span></label><input id="qwenTitle" maxlength="100" placeholder="Ex. Avatar, variante 2">
+        <label for="qwenSeed">Seed <span class="hint">vide = aléatoire</span></label><input id="qwenSeed" type="number" min="0" max="2147483647" placeholder="Aléatoire">
+        <div class="qwen-param-row"><div><label for="qwenSteps">Étapes</label><input id="qwenSteps" type="number" min="4" max="60" value="40"></div><div><label for="qwenGuidance">Guidage</label><input id="qwenGuidance" type="number" min="1" max="7" step="0.5" value="1"></div></div>
+        <label for="qwenNegative">À éviter</label><textarea id="qwenNegative" rows="3" maxlength="16000" placeholder="Prompt négatif" disabled></textarea><p class="hint" id="qwenNegativeHint">Actif lorsque le guidage dépasse 1.</p>
+      </div>
       <div class="field" id="fModeration">
         <label data-i18n="f_moderation">Modération</label>
         <div class="seg" id="moderationSeg"></div>
@@ -107,14 +115,22 @@
 
     <!-- WORK AREA -->
     <section class="work">
+      <section id="qwenCompute" class="qwen-compute hidden" aria-label="Calcul Qwen">
+        <div class="compute-heading"><div><h2>Votre GPU, votre atelier</h2><p>Le modèle se prépare automatiquement au démarrage.</p></div><span class="model-chip">Qwen 2.1 BF16</span></div>
+        <div class="gpu-machines">
+          <div class="gpu-machine"><div class="gpu-machine-title"><span id="a10Dot" class="gpu-dot"></span><b>A10</b><span>24 Go</span></div><p id="a10Label">Vérification…</p><button id="a10Start" class="btn-ghost" disabled>Démarrer A10</button><small id="a10Reason"></small></div>
+          <div class="gpu-machine"><div class="gpu-machine-title"><span id="a100Dot" class="gpu-dot"></span><b>A100</b><span>80 Go</span></div><p id="a100Label" role="status">Vérification…</p><div class="gpu-actions"><button id="a100Start" class="btn-primary">Démarrer A100</button><button id="a100Stop" class="btn-ghost" disabled>Arrêter</button></div><progress id="qwenPrepareProgress" max="100" value="0" hidden></progress></div>
+        </div><div class="compute-footer"><label for="qwenIdle">Arrêt après inactivité <select id="qwenIdle"><option value="5">5 min</option><option value="15" selected>15 min</option><option value="30">30 min</option><option value="60">1 h</option><option value="0">Garder allumée</option></select></label><span>Une autre tâche GPU est prioritaire si elle est déjà en cours.</span></div>
+      </section>
       <!-- edit-only source + mask -->
       <div class="panel hidden" id="editSources">
         <h3><span data-i18n="edit_sources">Images source</span> <span class="hint" style="color:var(--muted)" data-i18n="hint_edit_sources">glisser-déposer · multi-images OK</span></h3>
-        <div class="drop" id="drop" data-i18n="drop_zone">Cliquez ou déposez une ou plusieurs images ici</div>
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="Ajouter des références" data-i18n="drop_zone">Cliquez ou déposez une ou plusieurs images ici</div>
         <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" multiple class="hidden" />
         <div class="thumbs" id="thumbs"></div>
         <div class="hint multi-tip hidden" id="multiTip" data-i18n="multi_tip">Plusieurs images : désignez-les dans le prompt par « image 1 », « image 2 »… Utilisez les flèches pour les réordonner.</div>
 
+        <p id="maskUnavailable" class="hint hidden">Le pinceau et les masques ne sont pas pris en charge par Qwen. Les références servent à régénérer l’image entière.</p>
         <div class="mask-editor hidden" id="maskEditor">
           <label style="font-size:13px;font-weight:600;display:block;margin:14px 0 8px" data-i18n="mask_label">
             Masque d'inpainting — peignez la zone à modifier (le reste est préservé)
@@ -156,6 +172,7 @@
     </section>
   </main>
 
+  <section id="qwenQueue" class="qwen-queue hidden"><div class="queue-heading"><h2>File Qwen <span id="qwenQueueCount"></span></h2><span class="hint">Les demandes continuent même si vous fermez cette page.</span></div><p id="qwenConnection" class="hint" role="status"></p><div id="qwenJobs"></div></section>
   <section class="gallery hidden" id="galleryPanel" aria-labelledby="galleryTitle">
     <div class="gallery-heading">
       <div><h1 id="galleryTitle" data-i18n="tab_gallery">Ma galerie</h1>
@@ -206,7 +223,8 @@
     <button class="mbar-run btn-primary" id="runBtnMobile">Générer</button>
   </div>
 
-  <script src="/gallery.js?v=gallery1"></script>
-  <script src="/app.js?v=gallery1"></script>
+  <script src="/qwen.js?v=qwen2"></script>
+  <script src="/gallery.js?v=qwen2"></script>
+  <script src="/app.js?v=qwen2"></script>
 </body>
 </html>

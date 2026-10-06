@@ -169,6 +169,7 @@ function bestSize(rw, rh) {
 // Snap arbitrary WxH to the nearest valid free-size (×16, long≤3840, ratio≤3:1, 0.65–8.3 MP).
 function snapFree(w, h) { return clampFree(R16(w), R16(h)); }
 function clampFree(w, h) {
+  if(S.models[S.model]?.caps.seed){const c=S.models[S.model].caps.freeSize;let scale=Math.min(1,c.maxLongEdge/Math.max(w,h));return `${Math.max(c.minEdge,Math.round(w*scale/32)*32)}x${Math.max(c.minEdge,Math.round(h*scale/32)*32)}`;}
   let W = Math.max(512, w), H = Math.max(512, h);
   if (Math.max(W, H) / Math.min(W, H) > 3) { if (W > H) W = R16(H * 3); else H = R16(W * 3); }
   const sd = 3840 / Math.max(W, H); if (sd < 1) { W = R16(W * sd); H = R16(H * sd); }
@@ -204,7 +205,7 @@ async function boot() {
   const cfg = await (await fetch("/api/config")).json();
   S.config = cfg;
   cfg.models.forEach((m) => (S.models[m.id] = m));
-  S.model = cfg.defaultModel;
+  S.model = S.models[localStorage.getItem("imagelab-model")] ? localStorage.getItem("imagelab-model") : cfg.defaultModel;
 
   renderModelToggle();
   bindTabs();
@@ -213,6 +214,7 @@ async function boot() {
   bindLang();
   bindMobile();
   bindGallery();
+  bindQwen();
   selectModel(S.model);
   setLang(LANG);  // apply translations to static + dynamic UI
   if (location.hash === "#gallery") selectTab("gallery");
@@ -232,17 +234,20 @@ function renderModelToggle() {
   Object.values(S.models).forEach((m) => {
     const b = el("button", "model-btn");
     b.dataset.model = m.id;
-    const tagKey = m.id === "gpt-image-2" ? "tagline_2" : "tagline_15";
+    const tagKey = m.id === "qwen-image-2.1" ? "tagline_qwen" : m.id === "gpt-image-2" ? "tagline_2" : "tagline_15";
     b.innerHTML = `<span class="mt-name">${m.label}</span>
       <span class="mt-tag">${t(tagKey)}</span>
       <span class="mt-badge">${t("avail_" + m.availability)}</span>`;
+    b.setAttribute("aria-pressed",String(m.id===S.model));
+    b.classList.toggle("active",m.id===S.model);
     b.onclick = () => selectModel(m.id);
     wrap.appendChild(b);
   });
 }
 
 function selectModel(id) {
-  S.model = id;
+  if(S.model&&S.model!==id)rememberModel();
+  S.model = id;localStorage.setItem("imagelab-model",id);restoreModel(id);
   document.querySelectorAll(".model-btn").forEach((b) => b.classList.toggle("active", b.dataset.model === id));
   const caps = S.models[id].caps;
   $("optModelName").textContent = "· " + S.models[id].label;
@@ -266,7 +271,7 @@ function applyCaps() {
   renderSizeControls(caps);
 
   // ---- quality
-  buildSeg("qualitySeg", caps.qualities, S.quality, (v) => { S.quality = v; applyCaps(); },
+  buildSeg("qualitySeg", caps.qualities.length?caps.qualities:["high"], S.quality, (v) => { S.quality = v; applyCaps(); },
     { low: "low", medium: "medium", high: "high" });
 
   // ---- transparency
@@ -302,9 +307,10 @@ function applyCaps() {
   buildSeg("fidelitySeg", ["low", "high"], S.fidelity, (v) => { S.fidelity = v; }, { low: "low", high: "high" });
 
   // ---- moderation
-  buildSeg("moderationSeg", caps.moderation, S.moderation, (v) => { S.moderation = v; },
-    { auto: "auto", low: "low" });
+  buildSeg("moderationSeg", caps.moderation.length?caps.moderation:["none"], S.moderation, (v) => { S.moderation = v; },
+    { auto: "auto", low: "low", none: "Aucun filtre ajouté" });
 
+  applyQwenCaps(caps);
   setRunLabels();
 }
 
@@ -323,7 +329,7 @@ function buildSeg(id, values, current, onPick, labels) {
     seg.appendChild(b);
   });
 }
-function toggleField(id, enabled) { $(id).classList.toggle("disabled", !enabled); }
+function toggleField(id, enabled) { $(id).classList.toggle("disabled", !enabled); $(id).setAttribute("aria-disabled",String(!enabled)); $(id).querySelectorAll("input,button,select,textarea").forEach(e=>e.disabled=!enabled); }
 
 function renderSizeControls(caps) {
   const free = caps.sizeMode === "free";
@@ -348,7 +354,7 @@ function renderSizeControls(caps) {
 
   // ---- DEFINITION selector (long-edge target) — free models only
   const dseg = $("defSeg"); dseg.innerHTML = "";
-  DEFINITIONS.forEach((d) => {
+  definitions().forEach((d) => {
     const b = el("button", free ? "" : "off", `${d.label}<small>${d.sub}</small>`);
     if (!free) b.title = t("tip_def_native");
     if (free && !custom && !matching && S.def === d.id) b.classList.add("active");
@@ -385,7 +391,7 @@ function renderSizeControls(caps) {
 
 function syncCustomSize() {
   const caps = S.models[S.model].caps;
-  const d = DEFINITIONS.find((x) => x.id === S.def) || DEFINITIONS[0];
+  const d = definitions().find((x) => x.id === S.def) || definitions()[0];
   const r = RATIOS.find((x) => x.id === S.ratio) || RATIOS[0];
   const base = caps.sizeMode === "free" ? sizeFor(S.ratio, d.long) : (r.preset || "1024x1024");
   const [w, h] = base.split("x");
@@ -407,7 +413,7 @@ function currentSize() {
   // combo: ratio × definition
   const r = RATIOS.find((x) => x.id === S.ratio) || RATIOS[0];
   if (caps.sizeMode === "preset") return r.preset || caps.presets[0];
-  const d = DEFINITIONS.find((x) => x.id === S.def) || DEFINITIONS[0];
+  const d = definitions().find((x) => x.id === S.def) || definitions()[0];
   return sizeFor(S.ratio, d.long);
 }
 
@@ -429,7 +435,7 @@ function selectTab(tab) {
   document.body.classList.toggle("gallery-view", gallery);
   $("studio").classList.toggle("hidden", gallery);
   $("galleryPanel").classList.toggle("hidden", !gallery);
-  $("editSources").classList.toggle("hidden", tab !== "edit");
+  $("editSources").classList.toggle("hidden", tab !== "edit" && S.model!=="qwen-image-2.1");
   history.replaceState(null, "", gallery ? "#gallery" : location.pathname);
   updatePromptPlaceholder();
   applyCaps();
@@ -437,7 +443,9 @@ function selectTab(tab) {
 }
 
 function bindStaticInputs() {
-  $("prompt").addEventListener("input", (e) => { $("promptCount").textContent = e.target.value.length; });
+  $("prompt").value=localStorage.getItem("imagelab-prompt")||"";
+  $("promptCount").textContent=$("prompt").value.length;
+  $("prompt").addEventListener("input", (e) => { $("promptCount").textContent = e.target.value.length;localStorage.setItem("imagelab-prompt",e.target.value); });
   $("compression").addEventListener("input", (e) => { $("compressionVal").textContent = e.target.value; });
   $("nImages").addEventListener("input", (e) => { $("nVal").textContent = e.target.value; });
   $("transparent").addEventListener("change", applyCaps);
@@ -453,10 +461,12 @@ function bindStaticInputs() {
 // ------------------------------------------------------------------ run
 async function run() {
   if (S.busy || S.tab === "gallery") return;
-  const prompt = $("prompt").value.trim();
-  if (!prompt) { showErr(t("err_prompt_required")); return; }
+  const prompt = $("prompt").value;
+  if (!prompt.trim()) { showErr(t("err_prompt_required")); return; }
   if (S.tab === "edit" && S.sources.length === 0) { showErr(t("err_need_source")); return; }
 
+  if(S.model==="qwen-image-2.1"){await runQwen(prompt);return;}
+  rememberModel();
   setBusy(true); showErr(""); showRevised("");
   try {
     const data = S.tab === "edit" ? await runEdit(prompt) : await runGenerate(prompt);
@@ -508,7 +518,7 @@ async function runEdit(prompt) {
   S.sources.forEach((s) => fd.append("images", s.file, s.file.name));
 
   // mask from editor (first image)
-  if ($("maskEnabled")?.checked && !$("maskEditor").classList.contains("hidden")) {
+  if (caps.mask && $("maskEnabled")?.checked && !$("maskEditor").classList.contains("hidden")) {
     const blob = await exportMask();
     if (blob) fd.append("mask", blob, "mask.png");
   }
@@ -565,7 +575,8 @@ async function sendToEdit(dataUrl) {
 // ------------------------------------------------------------------ edit sources + mask editor
 function bindEdit() {
   const drop = $("drop"), input = $("fileInput");
-  drop.onclick = () => input.click();
+  drop.onclick = () => input.click();drop.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();input.click()}};
+  document.addEventListener("paste",e=>{const files=[...(e.clipboardData?.files||[])];if(files.length){e.preventDefault();addSources(files)}});
   input.onchange = () => { addSources([...input.files]); input.value = ""; };
   ["dragover", "dragenter"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("hover"); }));
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("hover"); }));
@@ -575,7 +586,10 @@ function bindEdit() {
 }
 
 function addSources(files) {
-  files.filter((f) => f.type.startsWith("image/")).forEach((f) => {
+  const limit=S.models[S.model].caps.maxReferences||16;
+  if(S.sources.length+files.length>limit){showErr(`Ce modèle accepte jusqu’à ${limit} références. Retirez-en ou choisissez un autre modèle.`);return;}
+  files.filter((f) => ["image/png","image/jpeg","image/webp"].includes(f.type)).forEach((f) => {
+    if(f.size>30*1024*1024){showErr(`${f.name} : 30 Mo maximum.`);return;}
     S.sources.push({ file: f, url: URL.createObjectURL(f) });
   });
   renderThumbs();
@@ -597,7 +611,7 @@ function renderThumbs() {
     const img = el("img"); img.src = s.url;
     const num = el("span", "n", String(i + 1));
     const x = el("button", "del", "×"); x.title = t("remove_img");
-    x.onclick = () => { S.sources.splice(i, 1); afterSourceChange(); };
+    x.onclick = () => { URL.revokeObjectURL(S.sources[i].url);S.sources.splice(i, 1); afterSourceChange(); };
     d.append(img, num, x);
     if (S.sources.length > 1) {
       const nav = el("div", "nav");

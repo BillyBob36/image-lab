@@ -1,0 +1,7 @@
+{
+  "subscription": "3db80e7b-25b9-44ae-a045-918012d771cd",
+  "resource_group": "rg-retopo-prod",
+  "app": "blender-a100",
+  "container": "gpu",
+  "remote_root": "/tmp/blender-astra"
+}

@@ -112,6 +112,8 @@ def _model_or_400(model_id: str) -> dict:
     m = MODELS.get(model_id)
     if not m:
         raise HTTPException(400, f"Modèle inconnu: {model_id}")
+    if m.get('provider')=='qwen':
+        raise HTTPException(400,'Les demandes Qwen passent par la file /api/qwen/jobs.')
     return m
 
 
@@ -251,6 +253,7 @@ async def api_edit(
 
     mask_part = None
     if mask is not None:
+        if not caps['mask']:raise HTTPException(400,'Ce modèle ne prend pas en charge les masques.')
         md = await mask.read()
         if md:
             if len(md) > 4 * 1024 * 1024:
@@ -462,6 +465,8 @@ def me(request: Request):
 
 
 # Static SPA mounted LAST so API/auth routes win. html=True serves index.html at /.
+from qwen.api import register as register_qwen
+register_qwen(app,store,_owner,start_engine=os.environ.get('QWEN_ENGINE_DISABLED')!='1')
 app.mount("/", StaticFiles(directory=str(BASE_DIR / "static"), html=True), name="static")
 
 # SessionMiddleware added AFTER the decorator so it wraps outermost (populates
