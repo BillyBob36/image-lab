@@ -63,7 +63,10 @@ class Cloud:
             assert rev['properties']['template']['containers'][0]['args']==['-lc','exec sleep infinity']
             azure('containerapp','revision','activate','-g',CONFIG['resource_group'],'-n',CONFIG['app'],'--revision',self.revision)
             self.session={'owned':True,'ready':False,'id':uuid.uuid4().hex};self.save()
-        notify({'status':'starting','label':'Démarrage de l’A100'})
+        if info['status']!='ready':
+            notify({'status':'preparing' if info.get('running') else 'starting',
+                    'label':'Connexion à Qwen' if info.get('running') else 'Démarrage de l’A100',
+                    'running':bool(info.get('running'))})
         deadline=time.time()+1200;c=None
         while time.time()<deadline:
             if cancelled():self.stop();raise Stopped()
