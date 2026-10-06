@@ -30,6 +30,8 @@ Les nouvelles générations et éditions conservent leurs octets originaux, une 
 
 Les anciennes versions ne conservaient les images que dans la page ouverte. **Ajouter des images** permet de récupérer celles téléchargées précédemment. Une importation répétée du même fichier par le même compte ne crée pas de doublon. Les sources d'édition ne sont pas archivées automatiquement ; les résultats le sont.
 
+Lorsqu'une même personne utilise plusieurs comptes Google vérifiés, l'exploitant peut réunir explicitement leurs galeries avec `ImageStore.link_owners`. Les alias sont conservés dans SQLite ; lecture, nouvelles générations, imports et suppression utilisent le propriétaire commun. Les identifiants, fichiers et dates des images sont préservés. Aucune association n'est déduite automatiquement des noms ou des adresses, et aucune route publique ne permet de relier des comptes. Les comptes Gmail et Metagora de Johann ont été réunis le 6 octobre 2026 ; les autres utilisateurs restent isolés.
+
 ## Stockage de production
 
 - Volume physique : `/mnt/HC_Volume_106989825/projects/image-lab`.

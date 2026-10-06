@@ -95,6 +95,28 @@ class GalleryTests(unittest.TestCase):
         self.assertEqual(self.store.file("a", item["id"])[0].read_bytes(), self.raw)
         self.assertFalse(any(p.name.startswith(".deleted-") for p in self.store.root.iterdir()))
 
+    def test_linked_accounts_mix_existing_and_future_images_without_exposing_others(self):
+        old = self.store.save([self.raw], owner="personal", prompt="old")[0]
+        new = self.store.save([self.raw], owner="work", prompt="new")[0]
+        other = self.store.save([self.raw], owner="other")[0]
+        self.store.link_owners("work", ["personal"])
+        reopened = ImageStore(self.store.root)
+        for owner in ["personal", "work"]:
+            items = reopened.list(owner)["items"]
+            self.assertEqual({v["id"] for v in items}, {old["id"], new["id"]})
+            self.assertEqual(items[0]["id"], new["id"])
+            self.assertEqual(reopened.file(owner, old["id"])[0].read_bytes(), self.raw)
+            self.assertIsNone(reopened.file(owner, other["id"]))
+        future = reopened.save([picture("JPEG")], owner="personal")[0]
+        self.assertEqual(reopened.list("work")["total"], 3)
+        self.assertEqual(reopened.save([picture("JPEG")], owner="work", deduplicate=True)[0]["id"], future["id"])
+        self.assertFalse(reopened.delete("other", old["id"]))
+        self.assertTrue(reopened.delete("personal", old["id"]))
+        self.assertIsNone(reopened.get("work", old["id"]))
+        self.assertEqual(reopened.list("other")["total"], 1)
+        with self.assertRaises(ValueError):
+            reopened.link_owners("other", ["personal"])
+
     def test_invalid_image_does_not_create_files_or_index_rows(self):
         with self.assertRaises(ValueError):
             self.store.save([b"<svg>not a raster</svg>"], owner="a")

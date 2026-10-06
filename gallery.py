@@ -58,6 +58,7 @@ class ImageStore:
                 sha256 TEXT NOT NULL, original_name TEXT NOT NULL)""")
             db.execute("CREATE INDEX IF NOT EXISTS images_owner_date ON images(owner, created_at DESC, id DESC)")
             db.execute("CREATE INDEX IF NOT EXISTS images_owner_hash ON images(owner, sha256)")
+            db.execute("CREATE TABLE IF NOT EXISTS gallery_owner_aliases (alias TEXT PRIMARY KEY, owner TEXT NOT NULL)")
             db.commit()
             return db
         except Exception:
@@ -121,6 +122,29 @@ class ImageStore:
         item.update(url=prefix + "/image", thumbnail_url=prefix + "/thumbnail", download_url=prefix + "/download")
         return item
 
+    @staticmethod
+    def _gallery_owner(db, owner):
+        row = db.execute("SELECT owner FROM gallery_owner_aliases WHERE alias=?", (owner,)).fetchone()
+        return row["owner"] if row else owner
+
+    def link_owners(self, canonical, aliases):
+        """Administrative operation for explicitly verified accounts of the same person."""
+        aliases = set(aliases) | {canonical}
+        with self.lock, closing(self._connect()) as db:
+            try:
+                db.execute("BEGIN IMMEDIATE")
+                for alias in aliases:
+                    existing = self._gallery_owner(db, alias)
+                    if existing not in aliases:
+                        raise ValueError("Ce compte appartient déjà à une autre galerie.")
+                for alias in aliases:
+                    db.execute("UPDATE images SET owner=? WHERE owner=?", (canonical, alias))
+                    db.execute("INSERT OR REPLACE INTO gallery_owner_aliases VALUES (?, ?)", (alias, canonical))
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+
     def save(self, raws, *, owner, prompt="", revised_prompt="", model="", mode="import",
              quality="", original_name="", deduplicate=False):
         self.ensure_writable(len(raws))
@@ -130,6 +154,7 @@ class ImageStore:
         with self.lock, closing(self._connect()) as db:
             try:
                 db.execute("BEGIN IMMEDIATE")
+                owner = self._gallery_owner(db, owner)
                 for raw, (fmt, width, height, thumbnail) in prepared:
                     sha = hashlib.sha256(raw).hexdigest()
                     if deduplicate:
@@ -172,6 +197,7 @@ class ImageStore:
             term = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             values.extend([term] * 3)
         with closing(self._connect()) as db:
+            values[0] = self._gallery_owner(db, owner)
             total = db.execute("SELECT COUNT(*) FROM images WHERE " + where, values).fetchone()[0]
             if before:
                 try:
@@ -193,6 +219,7 @@ class ImageStore:
         if not re.fullmatch(r"[a-f0-9]{32}", image_id):
             return None
         with closing(self._connect()) as db:
+            owner = self._gallery_owner(db, owner)
             row = db.execute("SELECT * FROM images WHERE owner=? AND id=?", (owner, image_id)).fetchone()
             return self.public(row) if row else None
 
@@ -204,6 +231,7 @@ class ImageStore:
             retired = None
             try:
                 db.execute("BEGIN IMMEDIATE")
+                owner = self._gallery_owner(db, owner)
                 row = db.execute("SELECT id FROM images WHERE owner=? AND id=?", (owner, image_id)).fetchone()
                 if not row:
                     db.rollback()
