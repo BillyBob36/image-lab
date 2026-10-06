@@ -60,6 +60,26 @@ class PersistentCacheTests(unittest.TestCase):
         self.assertFalse((self.root / 'qwen-studio-model.json').exists())
         check.assert_not_called()
 
+    def test_environment_shards_extract_in_parallel_without_shared_directory_errors(self):
+        shards = []
+        for index in range(4):
+            bundle = self.cache / f'venv-{index}.tar.gz'
+            with tarfile.open(bundle, 'w:gz') as tar:
+                info = tarfile.TarInfo(f'venv/lib/shared/package-{index}.py')
+                info.size = 1
+                tar.addfile(info, io.BytesIO(b'x'))
+                if index == 0:
+                    info = tarfile.TarInfo('venv/bin/python')
+                    info.size = 1
+                    tar.addfile(info, io.BytesIO(b'x'))
+            shards.append({'file': bundle.name, 'bytes': bundle.stat().st_size, 'sha256': hashlib.sha256(bundle.read_bytes()).hexdigest()})
+        self.manifest['environmentShards'] = shards
+        (self.cache / 'manifest.json').write_text(json.dumps(self.manifest))
+        state, _ = self.prepare()
+        self.assertEqual(state['stage'], 'ready', state)
+        for index in range(4):
+            self.assertEqual((self.root / f'venv/lib/shared/package-{index}.py').read_bytes(), b'x')
+
     def test_missing_mount_never_downloads_or_prepares_another_model(self):
         state, check = self.prepare(mounted=False)
         self.assertEqual(state['stage'], 'failed')
