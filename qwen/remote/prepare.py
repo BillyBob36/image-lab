@@ -40,23 +40,30 @@ try:
             assert h.hexdigest()==item['sha256'],'Poids du cache incorrects.'
             temporary.replace(target)
         with ThreadPoolExecutor(max_workers=8) as pool:list(pool.map(copy_model,manifest['modelFiles']))
-        env=manifest['environment'];source=persistent/env['file']
-        assert source.parent==persistent and source.stat().st_size==env['bytes']
-        state.update(stage='cache-environment',totalBytes=env['bytes'],downloadedBytes=0);publish()
-        archive=work/'venv.tar.gz';root.mkdir(parents=True,exist_ok=True)
-        with source.open('rb') as src,archive.open('wb') as dst:
-            while chunk:=src.read(16*1024**2):
-                dst.write(chunk);state['downloadedBytes']+=len(chunk)
-        h=hashlib.sha256()
-        with archive.open('rb') as src:
-            while chunk:=src.read(16*1024**2):h.update(chunk)
-        assert h.hexdigest()==env['sha256'],'Environnement du cache incorrect.'
+        environments=manifest.get('environmentShards') or [manifest['environment']]
+        state.update(stage='cache-environment',totalBytes=sum(env['bytes'] for env in environments),downloadedBytes=0);publish()
+        def copy_environment(env):
+            source=persistent/env['file'];archive=work/env['file']
+            assert source.parent==persistent and source.stat().st_size==env['bytes']
+            h=hashlib.sha256()
+            with source.open('rb') as src,archive.open('wb') as dst:
+                while chunk:=src.read(8*1024**2):
+                    dst.write(chunk);h.update(chunk)
+                    with lock:state['downloadedBytes']+=len(chunk)
+            assert h.hexdigest()==env['sha256'],'Environnement du cache incorrect.'
+            return archive
+        with ThreadPoolExecutor(max_workers=8) as pool:archives=list(pool.map(copy_environment,environments))
         state['stage']='cache-extracting';publish()
-        with tarfile.open(archive) as tar:
-            assert all(not m.name.startswith('/') and '..' not in Path(m.name).parts for m in tar.getmembers())
-            tar.extractall(root)
+        def extract_environment(archive):
+            with tarfile.open(archive) as tar:
+                assert all(not m.name.startswith('/') and '..' not in Path(m.name).parts for m in tar.getmembers())
+                for member in tar:
+                    target=root/member.name;target.parent.mkdir(parents=True,exist_ok=True)
+                    if member.isdir():target.mkdir(parents=True,exist_ok=True)
+                    else:tar.extract(member,root)
+            archive.unlink()
+        with ThreadPoolExecutor(max_workers=8) as pool:list(pool.map(extract_environment,archives))
         marker.write_text(json.dumps({'sha256':cfg['archiveSha256'],'cache':str(persistent),'preparedAt':time.time()}))
-        archive.unlink()
         cached=True
     if not cached:
         assert shutil.disk_usage('/tmp').free>90*1024**3,'Espace disque insuffisant pour le modèle.'

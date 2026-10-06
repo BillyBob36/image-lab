@@ -77,6 +77,7 @@ class Cloud:
             if cancelled():self.stop();raise Stopped()
             try:
                 c=Connection(self.revision)
+                c.on_console_wait=lambda seconds:notify({'status':'preparing','label':f'Connexion Azure limitée temporairement · reprise dans {seconds}s','running':True,'owned':True})
                 busy=c.run('nvidia-smi --query-compute-apps=pid --format=csv,noheader',timeout=30).strip()
                 break
             except Busy:

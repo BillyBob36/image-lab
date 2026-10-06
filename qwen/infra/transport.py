@@ -107,7 +107,10 @@ class Container:
                 delay=int((error.resp_headers or {}).get('retry-after',30))
                 print(f'Console Azure temporairement indisponible ({error.status_code}), reprise dans {delay}s.',flush=True)
                 deadline=time.monotonic()+delay
-                while time.monotonic()<deadline:time.sleep(min(20,deadline-time.monotonic()))
+                while time.monotonic()<deadline:
+                    callback=getattr(self,'on_console_wait',None)
+                    if callback:callback(round(deadline-time.monotonic()))
+                    time.sleep(min(10,deadline-time.monotonic()))
         connection.send_binary(b'\x00\x04'+b'{"Width":160,"Height":40}')
         connection.send_binary(b"\x00\x00stty sane -echo -onlcr; PS1=; PS2=; bind 'set enable-bracketed-paste off'; printf '\\n__ASTRA_SHELL_READY__\\n'\n")
         output = ''
