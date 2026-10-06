@@ -17,6 +17,47 @@ threading.Thread(target=heartbeat,daemon=True).start()
 try:
     marker=root/'qwen-studio-model.json'
     cached=marker.exists() and json.loads(marker.read_text()).get('sha256')==cfg['archiveSha256']
+    persistent=Path(cfg['persistentCacheRoot']) if cfg.get('persistentCacheRoot') else None
+    if persistent and not cached:
+        state.update(stage='cache-checking',cache=True);publish()
+        assert persistent.parent.is_mount(),'Le cache Azure Files n’est pas monté.'
+        manifest=json.loads((persistent/'manifest.json').read_text())
+        assert manifest['archiveSha256']==cfg['archiveSha256'],'Version du cache incorrecte.'
+        for item in manifest['modelFiles']:
+            relative=Path(item['path'])
+            assert not relative.is_absolute() and '..' not in relative.parts
+            assert (persistent/relative).stat().st_size==item['bytes'],'Fichier du cache incomplet.'
+        # Parallel, verified local copies avoid slow sequential mmap reads over SMB.
+        state.update(stage='cache-model',totalBytes=sum(item['bytes'] for item in manifest['modelFiles']),downloadedBytes=0);publish()
+        root.mkdir(parents=True,exist_ok=True)
+        def copy_model(item):
+            source=persistent/item['path'];target=root/item['path'];target.parent.mkdir(parents=True,exist_ok=True)
+            temporary=target.with_name(target.name+'.part');h=hashlib.sha256()
+            with source.open('rb') as src,temporary.open('wb') as dst:
+                while chunk:=src.read(8*1024**2):
+                    dst.write(chunk);h.update(chunk)
+                    with lock:state['downloadedBytes']+=len(chunk)
+            assert h.hexdigest()==item['sha256'],'Poids du cache incorrects.'
+            temporary.replace(target)
+        with ThreadPoolExecutor(max_workers=8) as pool:list(pool.map(copy_model,manifest['modelFiles']))
+        env=manifest['environment'];source=persistent/env['file']
+        assert source.parent==persistent and source.stat().st_size==env['bytes']
+        state.update(stage='cache-environment',totalBytes=env['bytes'],downloadedBytes=0);publish()
+        archive=work/'venv.tar.gz';root.mkdir(parents=True,exist_ok=True)
+        with source.open('rb') as src,archive.open('wb') as dst:
+            while chunk:=src.read(16*1024**2):
+                dst.write(chunk);state['downloadedBytes']+=len(chunk)
+        h=hashlib.sha256()
+        with archive.open('rb') as src:
+            while chunk:=src.read(16*1024**2):h.update(chunk)
+        assert h.hexdigest()==env['sha256'],'Environnement du cache incorrect.'
+        state['stage']='cache-extracting';publish()
+        with tarfile.open(archive) as tar:
+            assert all(not m.name.startswith('/') and '..' not in Path(m.name).parts for m in tar.getmembers())
+            tar.extractall(root)
+        marker.write_text(json.dumps({'sha256':cfg['archiveSha256'],'cache':str(persistent),'preparedAt':time.time()}))
+        archive.unlink()
+        cached=True
     if not cached:
         assert shutil.disk_usage('/tmp').free>90*1024**3,'Espace disque insuffisant pour le modèle.'
         state['stage']='restoring';archive=work/'environment.tar';size=cfg['archiveBytes']

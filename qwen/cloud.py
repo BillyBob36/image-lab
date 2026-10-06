@@ -40,6 +40,11 @@ class Cloud:
         self.session=json.loads(self.session_file.read_text()) if self.session_file.exists() else {}
     def save(self):self.session_file.write_text(json.dumps(self.session,indent=2))
     def inspect(self):
+        if self.cfg.get('sharedGpuApp'):
+            shared={**CONFIG,'app':self.cfg['sharedGpuApp']}
+            revisions=azure('containerapp','revision','list','--all','-g',CONFIG['resource_group'],'-n',shared['app'],config=shared)
+            if any(r['properties'].get('active') or r['properties'].get('replicas',0) for r in revisions):
+                return {'status':'occupied','label':'A100 utilisée par un traitement d’avatars','running':True,'checkedAt':time.time()}
         revisions=azure('containerapp','revision','list','--all','-g',CONFIG['resource_group'],'-n',CONFIG['app'])
         active=[r for r in revisions if r['properties'].get('active') or r['properties'].get('replicas',0)]
         others=[r['name'] for r in active if r['name']!=self.revision]
@@ -70,11 +75,21 @@ class Cloud:
         deadline=time.time()+1200;c=None
         while time.time()<deadline:
             if cancelled():self.stop();raise Stopped()
-            try:c=Connection(self.revision);break
-            except Busy:time.sleep(10)
+            try:
+                c=Connection(self.revision)
+                busy=c.run('nvidia-smi --query-compute-apps=pid --format=csv,noheader',timeout=30).strip()
+                break
+            except Busy:
+                if c:c.close()
+                c=None
+                time.sleep(10)
+            except RuntimeError as error:
+                if 'ClusterExecFailure' not in str(error):raise
+                if c:c.close()
+                c=None
+                time.sleep(10)
         if c is None:raise RuntimeError('L’A100 n’a pas démarré dans le délai prévu. Tu peux réessayer.')
         with c:
-            busy=c.run('nvidia-smi --query-compute-apps=pid --format=csv,noheader',timeout=30).strip()
             if busy:raise Busy('Un calcul utilise encore l’A100.')
             if self.session.get('ready') and self.session.get('replica')==c.replica:return
             self.session.update(owned=True,ready=False,replica=c.replica)
@@ -90,7 +105,7 @@ class Cloud:
             if previous.get('stage')!='ready':
                 c.run(f"mkdir -p {shlex.quote(remote)}; if mkdir {shlex.quote(remote+'/launch.lock')} 2>/dev/null; then nohup python {shlex.quote(remote+'/prepare.py')} {shlex.quote(remote+'/private.json')} > {shlex.quote(remote+'/runtime.log')} 2>&1 </dev/null & fi\nprintf 'PREPARATION_STARTED\\n'",timeout=45)
             else:self.session.update(ready=True);self.save();notify({'status':'ready','label':'Prête à générer','owned':True});return
-        labels={'preparing':'Préparation du modèle','restoring':'Restauration de Qwen','checking':'Vérification du modèle','extracting':'Installation du modèle','ready':'Prête à générer'}
+        labels={'preparing':'Préparation du modèle','restoring':'Restauration de Qwen','checking':'Vérification du modèle','extracting':'Installation du modèle','cache-checking':'Vérification du cache permanent','cache-model':'Chargement depuis le cache permanent','cache-environment':'Préparation de l’environnement Python','cache-extracting':'Installation de l’environnement Python','ready':'Prête à générer'}
         deadline=time.time()+1800
         while time.time()<deadline:
             if cancelled():self.stop();raise Stopped()
@@ -99,7 +114,8 @@ class Cloud:
             if stage=='failed':
                 self.session['initFailed']=True;self.save()
                 raise RuntimeError('Préparation de Qwen échouée : '+state.get('error','erreur du service'))
-            notify({'status':'ready' if stage=='ready' else 'preparing','label':labels.get(stage,'Préparation de Qwen'),'progress':round(state.get('downloadedBytes',0)/self.cfg['archiveBytes']*100),'owned':True})
+            total=state.get('totalBytes') or self.cfg['archiveBytes']
+            notify({'status':'ready' if stage=='ready' else 'preparing','label':labels.get(stage,'Préparation de Qwen'),'progress':round(state.get('downloadedBytes',0)/total*100),'owned':True,'cache':state.get('cache',False)})
             if stage=='ready':self.session.update(ready=True);self.save();return
             time.sleep(5)
         self.session['initFailed']=True;self.save()

@@ -11,7 +11,7 @@ def credential():
         if _credential is None:
             if os.environ.get('QWEN_AZURE_CLIENT_ID'):
                 _credential=ClientSecretCredential(os.environ['QWEN_AZURE_TENANT_ID'],os.environ['QWEN_AZURE_CLIENT_ID'],os.environ['QWEN_AZURE_CLIENT_SECRET'])
-            else:_credential=AzureCliCredential()
+            else:_credential=AzureCliCredential(process_timeout=60)
     return _credential
 
 def request(method,path,body=None):

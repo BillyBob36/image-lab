@@ -1,5 +1,5 @@
 {
-  "revision": "blender-a100--qwen-avatar-estelle-20261006",
+  "revision": "qwen-image-a100--cache-20261006",
   "model": "Qwen/Qwen-Image-2.1",
   "modelRevision": "d26bb61231c349cf6b7896fa83353113880e1ba3",
   "archive": "qwen-mouth-tests-20261005/preserved/qwen21-model-and-environment.tar",
@@ -7,5 +7,7 @@
   "archiveSha256": "bda16a60fb032e0c5a5aae4effb197ad5fc24633fae8cf838c4cc49b2181ff3f",
   "remoteModelRoot": "/tmp/blender-astra/qwen-mouth-tests",
   "remoteRoot": "/tmp/blender-astra/qwen-studio",
+  "persistentCacheRoot": "/mnt/qwen-cache/bda16a60fb032e0c5a5aae4effb197ad5fc24633fae8cf838c4cc49b2181ff3f",
+  "sharedGpuApp": "blender-a100",
   "idleMinutes": 15
 }

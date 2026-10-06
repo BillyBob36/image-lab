@@ -26,9 +26,9 @@ CONFIG = json.loads(Path(__file__).with_name('a100_config.json').read_text())
 EXIT = '__ASTRA_EXIT__'
 
 
-def azure(*args):
+def azure(*args, config=None):
     from .arm import command
-    return command(args,CONFIG)
+    return command(args,config or CONFIG)
 
 
 class Container:
