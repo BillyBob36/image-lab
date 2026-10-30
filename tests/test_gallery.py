@@ -117,6 +117,48 @@ class GalleryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             reopened.link_owners("other", ["personal"])
 
+    def test_shared_gallery_is_persistent_read_only_and_does_not_share_back(self):
+        shared = self.store.save([self.raw], owner="owner", prompt="shared")[0]
+        own = self.store.save([self.raw], owner="viewer", prompt="own")[0]
+        private = self.store.save([self.raw], owner="other")[0]
+        self.store.set_gallery_viewer("owner", "viewer")
+        self.store.set_gallery_viewer("owner", "viewer")
+        reopened = ImageStore(self.store.root)
+        items = {i["id"]: i for i in reopened.list("viewer")["items"]}
+        self.assertEqual(set(items), {shared["id"], own["id"]})
+        self.assertFalse(items[shared["id"]]["can_delete"])
+        self.assertTrue(items[own["id"]]["can_delete"])
+        self.assertEqual(reopened.file("viewer", shared["id"])[0].read_bytes(), self.raw)
+        self.assertFalse(reopened.delete("viewer", shared["id"]))
+        self.assertIsNone(reopened.get("viewer", private["id"]))
+        self.assertIsNone(reopened.get("owner", own["id"]))
+        self.assertEqual(reopened.list("other")["total"], 1)
+        future = reopened.save([self.raw], owner="owner", prompt="shared future")[0]
+        self.assertFalse(reopened.get("viewer", future["id"])["can_delete"])
+        first = reopened.list("viewer", limit=2)
+        second = reopened.list("viewer", limit=2, before=first["next_cursor"])
+        self.assertEqual({i["id"] for i in first["items"] + second["items"]}, {shared["id"], own["id"], future["id"]})
+        self.assertEqual(reopened.list("viewer", query="shared")["total"], 2)
+        imported = reopened.save([self.raw], owner="viewer", deduplicate=True)[0]
+        self.assertEqual(imported["id"], own["id"])
+        self.assertTrue(reopened.delete("viewer", own["id"]))
+        reopened.set_gallery_viewer("owner", "viewer", enabled=False)
+        self.assertIsNone(reopened.file("viewer", shared["id"]))
+        self.assertEqual(reopened.list("viewer")["total"], 0)
+        self.assertEqual(reopened.list("owner")["total"], 2)
+
+    def test_sharing_respects_account_aliases_and_is_not_transitive(self):
+        shared = self.store.save([self.raw], owner="personal")[0]
+        self.store.set_gallery_viewer("personal", "viewer")
+        self.store.link_owners("work", ["personal"])
+        self.store.link_owners("viewer-work", ["viewer"])
+        self.assertIsNotNone(self.store.get("viewer-work", shared["id"]))
+        self.assertFalse(self.store.delete("viewer-work", shared["id"]))
+        self.store.set_gallery_viewer("viewer-work", "third")
+        self.assertIsNone(self.store.get("third", shared["id"]))
+        self.store.set_gallery_viewer("work", "viewer-work", enabled=False)
+        self.assertIsNone(self.store.get("viewer", shared["id"]))
+
     def test_invalid_image_does_not_create_files_or_index_rows(self):
         with self.assertRaises(ValueError):
             self.store.save([b"<svg>not a raster</svg>"], owner="a")
@@ -226,6 +268,25 @@ class ApiTests(unittest.TestCase):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/api/gallery").status_code, 401)
         self.assertEqual(self.client.post("/api/gallery/import", files={"image": ("a.png", self.raw)}).status_code, 401)
+
+    def test_shared_gallery_api_allows_reading_but_rejects_deletion(self):
+        item = self.store.save([self.raw], owner="a@example.com")[0]
+        self.store.set_gallery_viewer("a@example.com", "b@example.com")
+        self.login("b@example.com")
+        response = self.client.get("/api/gallery")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["items"][0]["can_delete"])
+        self.assertEqual(self.client.get(item["url"]).content, self.raw)
+        self.assertEqual(self.client.get(item["download_url"]).content, self.raw)
+        self.assertEqual(self.client.get(item["thumbnail_url"]).status_code, 200)
+        token = self.client.get("/api/gallery/session").json()["token"]
+        self.assertEqual(self.client.delete("/api/gallery/" + item["id"], headers={"X-Gallery-Token": token}).status_code, 404)
+        self.assertEqual(self.store.file("a@example.com", item["id"])[0].read_bytes(), self.raw)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get(item["url"]).status_code, 401)
+        self.login("b@example.com")
+        self.store.set_gallery_viewer("a@example.com", "b@example.com", enabled=False)
+        self.assertEqual(self.client.get(item["download_url"]).status_code, 404)
 
     def test_delete_api_requires_session_origin_and_owner(self):
         item = self.store.save([self.raw], owner="a@example.com")[0]

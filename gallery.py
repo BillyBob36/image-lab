@@ -59,6 +59,8 @@ class ImageStore:
             db.execute("CREATE INDEX IF NOT EXISTS images_owner_date ON images(owner, created_at DESC, id DESC)")
             db.execute("CREATE INDEX IF NOT EXISTS images_owner_hash ON images(owner, sha256)")
             db.execute("CREATE TABLE IF NOT EXISTS gallery_owner_aliases (alias TEXT PRIMARY KEY, owner TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS gallery_viewers (owner TEXT NOT NULL, viewer TEXT NOT NULL, PRIMARY KEY (owner, viewer))")
+            db.execute("CREATE INDEX IF NOT EXISTS gallery_viewers_viewer ON gallery_viewers(viewer)")
             db.commit()
             return db
         except Exception:
@@ -115,17 +117,41 @@ class ImageStore:
                 os.close(fd)
 
     @staticmethod
-    def public(row):
+    def public(row, *, can_delete=True):
         item = dict(row)
         item.pop("owner", None)
         prefix = "/api/gallery/" + item["id"]
-        item.update(url=prefix + "/image", thumbnail_url=prefix + "/thumbnail", download_url=prefix + "/download")
+        item.update(url=prefix + "/image", thumbnail_url=prefix + "/thumbnail", download_url=prefix + "/download", can_delete=can_delete)
         return item
 
     @staticmethod
     def _gallery_owner(db, owner):
         row = db.execute("SELECT owner FROM gallery_owner_aliases WHERE alias=?", (owner,)).fetchone()
         return row["owner"] if row else owner
+
+    def _readable_owners(self, db, viewer):
+        canonical = self._gallery_owner(db, viewer)
+        rows = db.execute("""SELECT COALESCE(o.owner, v.owner) AS owner
+            FROM gallery_viewers v
+            LEFT JOIN gallery_owner_aliases o ON o.alias=v.owner
+            LEFT JOIN gallery_owner_aliases a ON a.alias=v.viewer
+            WHERE COALESCE(a.owner, v.viewer)=?""", (canonical,)).fetchall()
+        return canonical, sorted({canonical, *(row["owner"] for row in rows)})
+
+    def set_gallery_viewer(self, owner, viewer, *, enabled=True):
+        """Administrative read access; never merges accounts or grants deletion."""
+        if not owner or not viewer:
+            raise ValueError("Le propriétaire et le compte invité sont requis.")
+        with self.lock, closing(self._connect()) as db:
+            owner = self._gallery_owner(db, owner)
+            viewer = self._gallery_owner(db, viewer)
+            if enabled:
+                db.execute("INSERT OR IGNORE INTO gallery_viewers VALUES (?, ?)", (owner, viewer))
+            else:
+                db.execute("""DELETE FROM gallery_viewers
+                    WHERE COALESCE((SELECT owner FROM gallery_owner_aliases WHERE alias=gallery_viewers.owner), owner)=?
+                    AND COALESCE((SELECT owner FROM gallery_owner_aliases WHERE alias=gallery_viewers.viewer), viewer)=?""", (owner, viewer))
+            db.commit()
 
     def link_owners(self, canonical, aliases):
         """Administrative operation for explicitly verified accounts of the same person."""
@@ -190,14 +216,16 @@ class ImageStore:
         return self.save(raws, **metadata)
 
     def list(self, owner, *, query="", before="", limit=24):
-        where = "owner=?"
-        values = [owner]
+        where = ""
+        values = []
         if query:
             where += " AND (prompt LIKE ? ESCAPE '\\' OR original_name LIKE ? ESCAPE '\\' OR model LIKE ? ESCAPE '\\')"
             term = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             values.extend([term] * 3)
         with closing(self._connect()) as db:
-            values[0] = self._gallery_owner(db, owner)
+            canonical, owners = self._readable_owners(db, owner)
+            where = "owner IN (" + ",".join("?" for _ in owners) + ")" + where
+            values = [*owners, *values]
             total = db.execute("SELECT COUNT(*) FROM images WHERE " + where, values).fetchone()[0]
             if before:
                 try:
@@ -211,7 +239,7 @@ class ImageStore:
                 values.extend([date, image_id])
             rows = db.execute("SELECT * FROM images WHERE " + where + " ORDER BY created_at DESC, id DESC LIMIT ?", [*values, limit + 1]).fetchall()
             more = len(rows) > limit
-            items = [self.public(r) for r in rows[:limit]]
+            items = [self.public(r, can_delete=r["owner"] == canonical) for r in rows[:limit]]
             cursor = items[-1]["created_at"] + "|" + items[-1]["id"] if more else None
             return dict(items=items, total=total, next_cursor=cursor)
 
@@ -219,9 +247,9 @@ class ImageStore:
         if not re.fullmatch(r"[a-f0-9]{32}", image_id):
             return None
         with closing(self._connect()) as db:
-            owner = self._gallery_owner(db, owner)
-            row = db.execute("SELECT * FROM images WHERE owner=? AND id=?", (owner, image_id)).fetchone()
-            return self.public(row) if row else None
+            canonical, owners = self._readable_owners(db, owner)
+            row = db.execute("SELECT * FROM images WHERE owner IN (" + ",".join("?" for _ in owners) + ") AND id=?", (*owners, image_id)).fetchone()
+            return self.public(row, can_delete=row["owner"] == canonical) if row else None
 
     def delete(self, owner, image_id):
         if not re.fullmatch(r"[a-f0-9]{32}", image_id):

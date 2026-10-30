@@ -16,6 +16,7 @@ function bindGallery() {
     delete_image_hint: "L'image et sa miniature seront supprimées de votre galerie. Cette action est définitive.",
     delete_image_busy: "Suppression…", delete_image_done: "Image supprimée de votre galerie.",
     delete_image_failed: "Impossible de supprimer l'image. Réessayez.",
+    gallery_shared: "Partagée avec vous",
     preview: "Agrandir l'image", close: "Fermer", download_original: "Télécharger l'original", zoom_original: "Taille réelle",
     zoom_fit: "Adapter à l'écran", reuse_prompt: "Réutiliser le prompt", previous: "Précédente", next: "Suivante",
     imported_image: "Image importée", generated_image: "Image générée", edited_image: "Image éditée",
@@ -35,6 +36,7 @@ function bindGallery() {
     delete_image_hint: "The image and its thumbnail will be removed from your gallery. This action is permanent.",
     delete_image_busy: "Deleting…", delete_image_done: "Image deleted from your gallery.",
     delete_image_failed: "Unable to delete the image. Please try again.",
+    gallery_shared: "Shared with you",
     preview: "Enlarge image", close: "Close", download_original: "Download original", zoom_original: "Actual size",
     zoom_fit: "Fit to screen", reuse_prompt: "Reuse prompt", previous: "Previous", next: "Next",
     imported_image: "Imported image", generated_image: "Generated image", edited_image: "Edited image",
@@ -108,7 +110,7 @@ function bindGallery() {
 }
 
 function confirmImageDeletion(item) {
-  if (!item?.id || G.deleted.has(item.id) || G.deleteBusy) return;
+  if (!item?.id || item.can_delete === false || G.deleted.has(item.id) || G.deleteBusy) return;
   G.deleting = item;
   $("deleteImageName").textContent = imageTitle(item);
   $("deleteImagePreview").src = item.thumbnail_url || item.url;
@@ -120,7 +122,7 @@ function confirmImageDeletion(item) {
 
 async function deleteImage() {
   const item = G.deleting;
-  if (!item || G.deleteBusy) return;
+  if (!item || item.can_delete === false || G.deleteBusy) return;
   G.deleteBusy = true;
   $("deleteImageCancel").disabled = $("deleteImageConfirm").disabled = true;
   $("deleteImageConfirm").textContent = t("delete_image_busy");
@@ -207,6 +209,7 @@ function imageMeta(item) {
   if (item.width) parts.push(`${item.width} × ${item.height}`);
   if (item.bytes) parts.push(new Intl.NumberFormat(LANG, {maximumFractionDigits: 1}).format(item.bytes / 1e6) + " Mo");
   if (item.model) parts.push(S.models[item.model]?.label || item.model);
+  if (item.can_delete === false) parts.push(t("gallery_shared"));
   return parts.join(" · ");
 }
 
@@ -233,7 +236,9 @@ function renderGallery() {
     const remove = el("button", "btn-ghost btn-danger"); remove.textContent = t("delete_image");
     remove.setAttribute("aria-label", t("delete_image") + " : " + imageTitle(item).slice(0, 100));
     remove.onclick = () => confirmImageDeletion(item);
-    actions.append(open, download, remove); caption.append(title, meta, actions); card.append(preview, caption);
+    actions.append(open, download);
+    if (item.can_delete !== false) actions.append(remove);
+    caption.append(title, meta, actions); card.append(preview, caption);
     $("galleryGrid").append(card);
   });
 }
@@ -264,7 +269,7 @@ function renderViewer() {
   $("viewerDownload").href = item.download_url;
   $("viewerDownload").download = `imagelab-${item.id || Date.now()}.${item.format}`;
   $("viewerReuse").classList.toggle("hidden", !item.prompt);
-  $("viewerDelete").classList.toggle("hidden", !item.id);
+  $("viewerDelete").classList.toggle("hidden", !item.id || item.can_delete === false);
   $("viewerPrev").disabled = G.index === 0;
   $("viewerNext").disabled = G.index === G.viewing.length - 1;
   $("viewerStage").classList.remove("zoomed");

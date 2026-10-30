@@ -32,6 +32,8 @@ Les anciennes versions ne conservaient les images que dans la page ouverte. **Aj
 
 Lorsqu'une même personne utilise plusieurs comptes Google vérifiés, l'exploitant peut réunir explicitement leurs galeries avec `ImageStore.link_owners`. Les alias sont conservés dans SQLite ; lecture, nouvelles générations, imports et suppression utilisent le propriétaire commun. Les identifiants, fichiers et dates des images sont préservés. Aucune association n'est déduite automatiquement des noms ou des adresses, et aucune route publique ne permet de relier des comptes. Les comptes Gmail et Metagora de Johann ont été réunis le 6 octobre 2026 ; les autres utilisateurs restent isolés.
 
+Pour partager une galerie avec une autre personne autorisée, l'exploitant utilise `ImageStore.set_gallery_viewer(owner, viewer)`. Le droit est persistant dans SQLite et couvre les images actuelles et futures. L'invité retrouve les images partagées dans **Ma galerie**, peut les agrandir, les télécharger ou s'en servir comme référence pour une nouvelle création. Il ne peut pas les supprimer ; ses propres créations restent dans sa galerie. `enabled=False` révoque l'accès. Les comptes et les fichiers ne sont pas fusionnés, et aucun endpoint public ne permet d'accorder ce droit.
+
 ## Stockage de production
 
 - Volume physique : `/mnt/HC_Volume_106989825/projects/image-lab`.
